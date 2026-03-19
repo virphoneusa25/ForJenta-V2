@@ -1,33 +1,30 @@
 /**
  * MobileBuilderView - Complete mobile-first builder experience
  * 
- * A conversation-driven, mobile-first UI for the AI code builder
+ * A premium, conversation-driven mobile UI for the AI code builder
  * featuring:
- * - Sticky agent composer dock at bottom
- * - Floating preview CTA
- * - File action cards in conversation feed
+ * - Premium sticky header with project info
+ * - Conversational build feed with streaming messages
+ * - Inline file action cards
+ * - Floating preview access
+ * - Sticky bottom agent dock
  * - Full-screen preview overlay
  * - Bottom sheet for tools
  */
 
 import { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  MobileBuilderHeader,
-  MobileAgentDock,
-  MobilePreviewCTA,
-  MobileToolsSheet,
-  MobilePreviewSheet,
-  MobileConversationFeed,
-  convertPipelineToFeedItems,
-} from './index';
+import MobileBuilderHeader from './MobileBuilderHeader';
+import MobileAgentDock from './MobileAgentDock';
+import MobilePreviewCTA from './MobilePreviewCTA';
+import MobileToolsSheet from './MobileToolsSheet';
+import MobilePreviewSheet from './MobilePreviewSheet';
+import MobileConversationFeed, { convertPipelineToFeedItems } from './MobileConversationFeed';
 import type { ProjectFile } from '@/types';
+import type { AgentMessage, NarrationStatus } from '@/lib/agent';
 
 // Build status type
 type BuildStatus = 'idle' | 'processing' | 'generating' | 'validating' | 'repairing' | 'preview_ready' | 'paused' | 'failed' | 'complete';
-
-// Import agent types
-import type { AgentMessage, NarrationStatus } from '@/lib/agent';
 
 // Props from ProjectBuilder
 interface MobileBuilderViewProps {
@@ -42,7 +39,7 @@ interface MobileBuilderViewProps {
   pipelineMessages: any[];
   fileCards: any[];
   
-  // Smart Agent state (optional - for new agent mode)
+  // Smart Agent state
   agentMessages?: AgentMessage[];
   agentStatus?: NarrationStatus;
   
@@ -117,16 +114,24 @@ export default function MobileBuilderView({
 
   // Map generation state to build status
   const buildStatus: BuildStatus = useMemo(() => {
-    if (!isGenerating) return 'idle';
+    if (!isGenerating) {
+      // Check if we just completed
+      if (agentStatus === 'complete') return 'complete';
+      if (agentStatus === 'failed') return 'failed';
+      return 'idle';
+    }
+    
     switch (generationState) {
       case 'planning':
       case 'preparing':
+      case 'thinking':
         return 'processing';
       case 'generating':
       case 'building':
         return 'generating';
       case 'validating':
       case 'checking':
+      case 'verifying':
         return 'validating';
       case 'repairing':
       case 'fixing':
@@ -140,12 +145,30 @@ export default function MobileBuilderView({
       default:
         return 'processing';
     }
-  }, [isGenerating, generationState]);
+  }, [isGenerating, generationState, agentStatus]);
 
-  // Convert pipeline data to feed items
+  // Convert pipeline data to feed items (legacy support)
   const feedItems = useMemo(() => {
     return convertPipelineToFeedItems(pipelineMessages, fileCards);
   }, [pipelineMessages, fileCards]);
+
+  // Status message based on generation state
+  const statusMessage = useMemo(() => {
+    switch (generationState) {
+      case 'planning': return 'Planning your changes...';
+      case 'preparing': return 'Setting up...';
+      case 'thinking': return 'Analyzing request...';
+      case 'generating': return 'Generating code...';
+      case 'building': return 'Building files...';
+      case 'validating': return 'Validating changes...';
+      case 'verifying': return 'Verifying preview...';
+      case 'checking': return 'Running checks...';
+      case 'repairing': return 'Auto-repairing...';
+      case 'complete': return 'Build complete!';
+      case 'failed': return 'Build failed';
+      default: return '';
+    }
+  }, [generationState]);
 
   // Handlers
   const handleBack = useCallback(() => {
@@ -167,33 +190,22 @@ export default function MobileBuilderView({
   }, [chatInput, onSend]);
 
   const handleViewFileFull = useCallback((path: string) => {
-    // Open file in editor (or could show a modal)
     onOpenFile(path);
-    // Close preview if open
     setShowPreviewSheet(false);
   }, [onOpenFile]);
 
-  // Status message based on generation state
-  const statusMessage = useMemo(() => {
-    switch (generationState) {
-      case 'planning': return 'Planning your changes...';
-      case 'preparing': return 'Setting up...';
-      case 'generating': return 'Generating code...';
-      case 'building': return 'Building files...';
-      case 'validating': return 'Validating preview...';
-      case 'checking': return 'Checking for errors...';
-      case 'repairing': return 'Auto-repairing...';
-      case 'complete': return 'Build complete!';
-      case 'failed': return 'Build failed';
-      default: return '';
-    }
-  }, [generationState]);
+  const handleQuickAction = useCallback((prompt: string) => {
+    setChatInput(prompt);
+    // Optionally auto-submit
+    // onSend(prompt);
+  }, [setChatInput]);
 
   const hasContent = files.length > 0;
+  const showPreviewCTA = hasContent && !isGenerating && !showPreviewSheet;
 
   return (
-    <div className="flex flex-col h-screen bg-black">
-      {/* Header */}
+    <div className="flex flex-col h-screen bg-black" data-testid="mobile-builder-view">
+      {/* Premium Header */}
       <MobileBuilderHeader
         projectName={projectName}
         onBack={handleBack}
@@ -203,27 +215,28 @@ export default function MobileBuilderView({
         isGenerating={isGenerating}
       />
 
-      {/* Main conversation feed */}
+      {/* Main Conversation Feed */}
       <MobileConversationFeed
         items={feedItems}
+        agentMessages={agentMessages}
+        agentStatus={agentStatus}
         isProcessing={isGenerating}
         processingMessage={statusMessage}
         onOpenFile={onOpenFile}
         onViewFileFull={handleViewFileFull}
-        agentMessages={agentMessages}
-        agentStatus={agentStatus}
-        onQuickAction={onQuickAction}
+        onQuickAction={onQuickAction || handleQuickAction}
+        onPreviewClick={handlePreview}
+        hasPreview={hasContent}
       />
 
-      {/* Floating Preview CTA (hidden when generating or preview sheet open) */}
-      {hasContent && !isGenerating && !showPreviewSheet && (
-        <MobilePreviewCTA
-          onClick={handlePreview}
-          hasContent={hasContent}
-        />
-      )}
+      {/* Floating Preview CTA */}
+      <MobilePreviewCTA
+        onClick={handlePreview}
+        hasContent={hasContent}
+        isVisible={showPreviewCTA}
+      />
 
-      {/* Agent Dock (sticky bottom) */}
+      {/* Premium Agent Dock */}
       <MobileAgentDock
         value={chatInput}
         onChange={setChatInput}
@@ -236,7 +249,7 @@ export default function MobileBuilderView({
         isGenerating={isGenerating}
         placeholder={
           files.length === 0
-            ? "Describe what you want to build..."
+            ? "What would you like to build?"
             : "Continue building or describe changes..."
         }
       />

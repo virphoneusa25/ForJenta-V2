@@ -1,8 +1,15 @@
 /**
- * MobileBuilderHeader - Compact premium header for mobile builder
+ * MobileBuilderHeader - Premium sticky header for mobile builder
+ * 
+ * Features:
+ * - Clean back navigation
+ * - Project title with status indicator
+ * - Primary Preview CTA
+ * - Overflow menu
+ * - Glass-morphism styling
  */
 
-import { ArrowLeft, Eye, MoreVertical, Wifi, WifiOff } from 'lucide-react';
+import { ArrowLeft, Eye, MoreVertical, Zap, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface MobileBuilderHeaderProps {
@@ -23,61 +30,93 @@ export default function MobileBuilderHeader({
   isGenerating = false,
 }: MobileBuilderHeaderProps) {
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center justify-between gap-2 border-b border-white/[0.06] bg-black/95 backdrop-blur-xl px-2 safe-area-top">
-      {/* Left: Back button */}
-      <button
-        onClick={onBack}
-        className="flex items-center justify-center size-10 rounded-xl text-gray-400 hover:text-white hover:bg-white/[0.06] active:bg-white/10 transition-colors"
-        aria-label="Go back"
-      >
-        <ArrowLeft className="size-5" />
-      </button>
+    <header 
+      className="sticky top-0 z-40 safe-area-top"
+      data-testid="mobile-builder-header"
+    >
+      {/* Glass background layer */}
+      <div className="absolute inset-0 bg-gradient-to-b from-black via-black/98 to-black/95 backdrop-blur-2xl" />
+      
+      {/* Bottom border glow when generating */}
+      <div className={cn(
+        "absolute inset-x-0 bottom-0 h-px transition-opacity duration-500",
+        isGenerating 
+          ? "opacity-100 bg-gradient-to-r from-transparent via-violet-500/50 to-transparent" 
+          : "opacity-100 bg-white/[0.06]"
+      )} />
+      
+      {/* Content */}
+      <div className="relative flex h-16 items-center justify-between gap-3 px-3">
+        {/* Left: Back button */}
+        <button
+          onClick={onBack}
+          className="flex items-center justify-center size-11 -ml-1 rounded-2xl text-gray-400 hover:text-white hover:bg-white/[0.06] active:bg-white/10 active:scale-95 transition-all"
+          aria-label="Go back"
+          data-testid="mobile-back-btn"
+        >
+          <ArrowLeft className="size-5" strokeWidth={2} />
+        </button>
 
-      {/* Center: Project title + status */}
-      <div className="flex-1 min-w-0 text-center">
-        <h1 className="text-sm font-semibold text-white truncate px-2">
-          {projectName}
-        </h1>
-        <div className="flex items-center justify-center gap-1.5 mt-0.5">
-          {isGenerating ? (
-            <>
-              <span className="size-1.5 rounded-full bg-violet-500 animate-pulse" />
-              <span className="text-[10px] text-violet-400">Building...</span>
-            </>
-          ) : (
-            <>
-              {isConnected ? (
-                <Wifi className="size-3 text-emerald-500" />
-              ) : (
-                <WifiOff className="size-3 text-gray-500" />
-              )}
-              <span className="text-[10px] text-gray-500">
-                {isConnected ? 'Connected' : 'Offline'}
-              </span>
-            </>
-          )}
+        {/* Center: Project title + status */}
+        <div className="flex-1 min-w-0 text-center px-2">
+          <h1 className="text-[15px] font-semibold text-white truncate tracking-tight">
+            {projectName}
+          </h1>
+          <div className="flex items-center justify-center gap-2 mt-1">
+            {isGenerating ? (
+              <div className="flex items-center gap-1.5">
+                <span className="relative flex size-2">
+                  <span className="absolute inset-0 rounded-full bg-violet-400 animate-ping opacity-75" />
+                  <span className="relative rounded-full size-2 bg-violet-500" />
+                </span>
+                <span className="text-[11px] font-medium text-violet-400 tracking-wide">
+                  Building...
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <span className={cn(
+                  "size-1.5 rounded-full",
+                  isConnected ? "bg-emerald-500" : "bg-gray-600"
+                )} />
+                <span className={cn(
+                  "text-[11px] font-medium tracking-wide",
+                  isConnected ? "text-emerald-500/80" : "text-gray-600"
+                )}>
+                  {isConnected ? 'Ready' : 'Offline'}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Right: Preview + Menu */}
-      <div className="flex items-center gap-1">
-        <button
-          onClick={onPreview}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-500 text-white text-xs font-semibold hover:bg-violet-400 active:bg-violet-600 transition-colors"
-          data-testid="mobile-preview-btn"
-        >
-          <Eye className="size-3.5" />
-          <span>Preview</span>
-        </button>
-        
-        <button
-          onClick={onMenu}
-          className="flex items-center justify-center size-10 rounded-xl text-gray-400 hover:text-white hover:bg-white/[0.06] active:bg-white/10 transition-colors"
-          aria-label="Menu"
-          data-testid="mobile-menu-btn"
-        >
-          <MoreVertical className="size-5" />
-        </button>
+        {/* Right: Preview + Menu */}
+        <div className="flex items-center gap-1.5">
+          {/* Preview button - premium pill style */}
+          <button
+            onClick={onPreview}
+            className={cn(
+              "flex items-center gap-2 h-10 px-4 rounded-xl font-semibold text-[13px] transition-all active:scale-95",
+              "bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white",
+              "shadow-lg shadow-violet-500/20 hover:shadow-violet-500/30",
+              "hover:from-violet-500 hover:to-fuchsia-500"
+            )}
+            data-testid="mobile-preview-btn"
+          >
+            <Eye className="size-4" strokeWidth={2.5} />
+            <span>Preview</span>
+          </button>
+          
+          {/* Menu button */}
+          <button
+            onClick={onMenu}
+            className="flex items-center justify-center size-11 rounded-2xl text-gray-400 hover:text-white hover:bg-white/[0.06] active:bg-white/10 active:scale-95 transition-all"
+            aria-label="Menu"
+            data-testid="mobile-menu-btn"
+          >
+            <MoreVertical className="size-5" strokeWidth={2} />
+          </button>
+        </div>
       </div>
     </header>
   );

@@ -109,8 +109,8 @@ test.describe('Mobile Project Builder - Persistent Loading', () => {
     // Project name should be visible in header (todo-app)
     await expect(page.getByText('todo-app').first()).toBeVisible();
     
-    // Connected status should be visible
-    await expect(page.getByText('Connected')).toBeVisible();
+    // Ready status should be visible (premium redesign uses "Ready" instead of "Connected")
+    await expect(page.getByText('Ready', { exact: true })).toBeVisible();
   });
 
   test('mobile input for continuation prompts', async ({ page }) => {
@@ -225,7 +225,8 @@ test.describe('Project Navigation', () => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/workspace', { waitUntil: 'domcontentloaded' });
     
-    await expect(page.getByText('Got an idea')).toBeVisible();
+    // Wait for workspace to load - look for main text
+    await expect(page.getByPlaceholder('Describe what you want to build').first()).toBeVisible();
     
     // Click on the todo-app project in sidebar (if visible)
     const projectLink = page.locator('aside').getByText('todo-app').first();
@@ -237,8 +238,8 @@ test.describe('Project Navigation', () => {
       // Should navigate to project builder
       await page.waitForURL(/\/project\//);
       
-      // Verify we're in the project builder - look for FILES text
-      await expect(page.getByText('FILES').first()).toBeVisible();
+      // Verify we're in the project builder - look for Files section
+      await expect(page.getByText('Files', { exact: true }).first()).toBeVisible();
     } else {
       // If no project in sidebar, skip this test
       test.skip();
@@ -249,8 +250,8 @@ test.describe('Project Navigation', () => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
-    // Wait for project builder to load - look for FILES section
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    // Wait for project builder to load - look for Files section
+    await expect(page.getByText('Files', { exact: true }).first()).toBeVisible();
     
     // Click back arrow to go to workspace
     const backButton = page.locator('button[aria-label="Back"]').first();
@@ -261,7 +262,7 @@ test.describe('Project Navigation', () => {
     await page.waitForURL(/\/workspace/);
     
     // Verify we're in the workspace
-    await expect(page.getByText('Got an idea')).toBeVisible();
+    await expect(page.getByPlaceholder('Describe what you want to build').first()).toBeVisible();
   });
 
   test('project files remain accessible after navigation away and back', async ({ page }) => {
@@ -270,8 +271,8 @@ test.describe('Project Navigation', () => {
     // Go to project builder directly
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
-    // Wait for project to load - FILES section indicates loaded
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    // Wait for project to load - Files section indicates loaded
+    await expect(page.getByText('Files', { exact: true }).first()).toBeVisible();
     
     // Note files are present
     await expect(page.getByText('index.html').first()).toBeVisible();
@@ -284,7 +285,7 @@ test.describe('Project Navigation', () => {
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
     // Wait for project builder to load again
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    await expect(page.getByText('Files', { exact: true }).first()).toBeVisible();
     
     // Project files should still be visible
     await expect(page.getByText('index.html').first()).toBeVisible();

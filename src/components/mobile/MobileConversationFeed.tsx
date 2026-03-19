@@ -1,26 +1,44 @@
 /**
- * MobileConversationFeed - Main conversation/activity feed for mobile builder
+ * MobileConversationFeed - Premium conversation/activity feed for mobile builder
  * 
- * Now supports both legacy pipeline messages and new AgentMessage format
- * for the Smart AI Build Agent.
+ * The main scrollable area displaying:
+ * - Assistant messages with streaming text
+ * - User prompts
+ * - File action cards
+ * - Status updates
+ * - Preview snapshots
+ * 
+ * Features:
+ * - Auto-scroll to latest
+ * - Generous spacing
+ * - Premium empty state
+ * - Quick action suggestions
  */
 
 import { useRef, useEffect } from 'react';
-import { Sparkles, User, Wand2, ArrowRight } from 'lucide-react';
+import { Sparkles, Wand2, ArrowRight, Zap, Palette, Code2, Layout } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import MobileFileActionCard from './MobileFileActionCard';
-import MobileBuildMessageCard, { MobileProcessingIndicator } from './MobileBuildMessageCard';
-import AgentMessageCard, { AgentThinkingIndicator } from './AgentMessageCard';
-import type { AgentMessage, NarrationStatus } from '@/lib/agent';
+import { 
+  AssistantMessageCard, 
+  UserPromptCard, 
+  StatusRow, 
+  VerificationCard,
+  FileActionCard,
+  AgentThinkingIndicator,
+} from './AgentMessageCard';
+import { MobilePreviewMiniCard } from './MobilePreviewCTA';
+import type { AgentMessage, NarrationStatus, FileAction } from '@/lib/agent';
 
+// Legacy feed item types for backward compatibility
 type FeedItemType = 
   | 'user_prompt'
   | 'assistant_message'
   | 'file_action'
   | 'status'
-  | 'processing';
+  | 'processing'
+  | 'preview';
 
-interface FileAction {
+interface LegacyFileAction {
   action: 'created' | 'edited' | 'repaired' | 'viewed' | 'deleted';
   path: string;
   language?: string;
@@ -31,221 +49,268 @@ interface FeedItem {
   id: string;
   type: FeedItemType;
   timestamp: string;
-  // For user_prompt
   prompt?: string;
-  // For assistant_message
   message?: string;
   messageType?: 'assistant' | 'status' | 'warning' | 'error' | 'success' | 'info';
-  // For file_action
-  fileAction?: FileAction;
-  // For processing
+  fileAction?: LegacyFileAction;
   processingMessage?: string;
 }
 
 interface MobileConversationFeedProps {
-  items: FeedItem[];
+  // Legacy items support
+  items?: FeedItem[];
+  // New agent-based props
+  agentMessages?: AgentMessage[];
+  agentStatus?: NarrationStatus;
+  // Common props
   isProcessing?: boolean;
   processingMessage?: string;
   onOpenFile?: (path: string) => void;
   onViewFileFull?: (path: string) => void;
-  // New agent-based props
-  agentMessages?: AgentMessage[];
-  agentStatus?: NarrationStatus;
   onQuickAction?: (action: string) => void;
+  onPreviewClick?: () => void;
+  hasPreview?: boolean;
 }
 
 export default function MobileConversationFeed({
-  items,
+  items = [],
+  agentMessages = [],
+  agentStatus,
   isProcessing = false,
   processingMessage,
   onOpenFile,
   onViewFileFull,
-  agentMessages = [],
-  agentStatus,
   onQuickAction,
+  onPreviewClick,
+  hasPreview = false,
 }: MobileConversationFeedProps) {
   const feedRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom on new items
+  // Auto-scroll to bottom on new content
   useEffect(() => {
     if (feedRef.current) {
+      const scrollOptions: ScrollIntoViewOptions = { behavior: 'smooth', block: 'end' };
       feedRef.current.scrollTo({
         top: feedRef.current.scrollHeight,
         behavior: 'smooth',
       });
     }
-  }, [items.length, isProcessing, agentMessages.length]);
+  }, [items.length, agentMessages.length, isProcessing]);
 
   const formatTime = (timestamp: string) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // Determine if we should use agent messages or legacy items
+  // Determine content mode
   const useAgentMode = agentMessages.length > 0;
+  const hasContent = useAgentMode ? agentMessages.length > 0 : items.length > 0;
   const isComplete = agentStatus === 'complete';
 
   return (
     <div
       ref={feedRef}
-      className="flex-1 overflow-y-auto px-4 py-4 space-y-4 scrollbar-thin"
+      className="flex-1 overflow-y-auto scrollbar-thin"
       data-testid="mobile-conversation-feed"
     >
-      {/* Empty state when no content */}
-      {!useAgentMode && items.length === 0 && !isProcessing ? (
-        <EmptyState />
-      ) : useAgentMode ? (
-        /* Agent-based conversation feed */
-        <>
-          {agentMessages.map((message, index) => (
-            <AgentMessageCard
-              key={message.id}
-              message={message}
-              isLatest={index === agentMessages.length - 1}
-              onFileClick={onOpenFile}
-            />
+      {/* Feed content with generous padding */}
+      <div className="px-4 py-6 space-y-6 pb-32">
+        {!hasContent && !isProcessing ? (
+          <EmptyState onQuickAction={onQuickAction} />
+        ) : useAgentMode ? (
+          /* Agent-based conversation feed */
+          <>
+            {agentMessages.map((message, index) => (
+              <div key={message.id}>
+                {message.type === 'thought' && (
+                  <AssistantMessageCard
+                    content={message.content}
+                    status={message.status}
+                    isStreaming={message.isStreaming}
+                    fileActions={message.fileActions}
+                    onFileClick={onOpenFile}
+                  />
+                )}
+
+                {message.type === 'status' && (
+                  <StatusRow status={message.status} message={message.content} />
+                )}
+
+                {message.type === 'verification' && (
+                  <VerificationCard
+                    passed={message.status === 'complete'}
+                    title={message.content}
+                    checks={message.subDetails}
+                  />
+                )}
+
+                {message.type === 'file' && message.fileActions && message.fileActions.length > 0 && (
+                  <div className="pl-14 space-y-2">
+                    {message.fileActions.map((action, i) => (
+                      <FileActionCard key={i} action={action} onClick={onOpenFile} isCompact />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* Show thinking indicator when agent is working */}
+            {isProcessing && agentStatus && agentStatus !== 'complete' && agentStatus !== 'failed' && (
+              <AgentThinkingIndicator status={agentStatus} message={processingMessage} />
+            )}
+
+            {/* Preview card after completion */}
+            {isComplete && hasPreview && onPreviewClick && (
+              <div className="pt-4">
+                <MobilePreviewMiniCard onClick={onPreviewClick} isReady />
+              </div>
+            )}
+
+            {/* Quick actions after completion */}
+            {isComplete && onQuickAction && (
+              <QuickActionsPanel onAction={onQuickAction} />
+            )}
+          </>
+        ) : (
+          /* Legacy pipeline-based feed */
+          <>
+            {items.map((item) => (
+              <div key={item.id}>
+                {item.type === 'user_prompt' && item.prompt && (
+                  <UserPromptCard
+                    content={item.prompt}
+                    timestamp={formatTime(item.timestamp)}
+                  />
+                )}
+
+                {item.type === 'assistant_message' && item.message && (
+                  <AssistantMessageCard
+                    content={item.message}
+                    status={item.messageType === 'error' ? 'failed' : 
+                            item.messageType === 'success' ? 'complete' : 
+                            'working'}
+                    isStreaming={false}
+                  />
+                )}
+
+                {item.type === 'file_action' && item.fileAction && (
+                  <div className="pl-14">
+                    <FileActionCard
+                      action={{
+                        path: item.fileAction.path,
+                        action: item.fileAction.action === 'edited' ? 'updated' : item.fileAction.action,
+                        timestamp: item.timestamp,
+                      }}
+                      onClick={onOpenFile}
+                    />
+                  </div>
+                )}
+
+                {item.type === 'status' && item.message && (
+                  <StatusRow status="working" message={item.message} />
+                )}
+
+                {item.type === 'preview' && onPreviewClick && (
+                  <MobilePreviewMiniCard onClick={onPreviewClick} isReady />
+                )}
+              </div>
+            ))}
+
+            {/* Processing indicator */}
+            {isProcessing && (
+              <AgentThinkingIndicator status="generating" message={processingMessage} />
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Premium Empty State
+ */
+function EmptyState({ onQuickAction }: { onQuickAction?: (action: string) => void }) {
+  const suggestions = [
+    { icon: Layout, label: 'Build a landing page', prompt: 'Build a modern landing page with hero section, features, and call-to-action' },
+    { icon: Code2, label: 'Create a dashboard', prompt: 'Create a dashboard with charts, stats cards, and data tables' },
+    { icon: Palette, label: 'Design a portfolio', prompt: 'Design a portfolio website with project gallery and contact form' },
+  ];
+
+  return (
+    <div 
+      className="flex flex-col items-center justify-center min-h-[60vh] py-12 px-6 text-center"
+      data-testid="mobile-empty-state"
+    >
+      {/* Premium icon */}
+      <div className="relative mb-6">
+        <div className="size-20 rounded-3xl bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex items-center justify-center">
+          <Sparkles className="size-10 text-violet-400" />
+        </div>
+        {/* Glow effect */}
+        <div className="absolute inset-0 rounded-3xl bg-violet-500/10 blur-xl -z-10" />
+      </div>
+      
+      <h3 className="text-xl font-semibold text-white mb-3">
+        Ready to build
+      </h3>
+      <p className="text-[15px] text-gray-500 max-w-[280px] leading-relaxed mb-8">
+        Describe what you want to create and I'll build it for you step by step.
+      </p>
+      
+      {/* Quick suggestions */}
+      {onQuickAction && (
+        <div className="w-full space-y-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-600 mb-3">
+            Try one of these
+          </p>
+          {suggestions.map((suggestion) => (
+            <button
+              key={suggestion.label}
+              onClick={() => onQuickAction(suggestion.prompt)}
+              className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-left transition-all hover:bg-white/[0.06] hover:border-violet-500/20 active:scale-[0.99]"
+            >
+              <div className="size-10 rounded-xl bg-violet-500/10 flex items-center justify-center shrink-0">
+                <suggestion.icon className="size-5 text-violet-400" />
+              </div>
+              <span className="text-[14px] font-medium text-gray-300">{suggestion.label}</span>
+              <ArrowRight className="size-4 text-gray-600 ml-auto" />
+            </button>
           ))}
-
-          {/* Show thinking indicator when agent is working */}
-          {isProcessing && agentStatus && agentStatus !== 'complete' && agentStatus !== 'failed' && (
-            <AgentThinkingIndicator status={agentStatus} message={processingMessage} />
-          )}
-
-          {/* Quick actions after completion */}
-          {isComplete && onQuickAction && (
-            <QuickActions onAction={onQuickAction} />
-          )}
-        </>
-      ) : (
-        /* Legacy pipeline-based feed */
-        <>
-          {items.map((item) => (
-            <div key={item.id}>
-              {item.type === 'user_prompt' && (
-                <UserPromptCard
-                  prompt={item.prompt || ''}
-                  timestamp={formatTime(item.timestamp)}
-                />
-              )}
-
-              {item.type === 'assistant_message' && (
-                <MobileBuildMessageCard
-                  type={item.messageType || 'assistant'}
-                  content={item.message || ''}
-                  timestamp={formatTime(item.timestamp)}
-                />
-              )}
-
-              {item.type === 'file_action' && item.fileAction && (
-                <MobileFileActionCard
-                  action={item.fileAction.action}
-                  filePath={item.fileAction.path}
-                  language={item.fileAction.language}
-                  content={item.fileAction.content}
-                  timestamp={formatTime(item.timestamp)}
-                  onOpen={() => onOpenFile?.(item.fileAction!.path)}
-                  onViewFull={() => onViewFileFull?.(item.fileAction!.path)}
-                />
-              )}
-
-              {item.type === 'status' && (
-                <MobileBuildMessageCard
-                  type="status"
-                  content={item.message || ''}
-                  timestamp={formatTime(item.timestamp)}
-                />
-              )}
-            </div>
-          ))}
-
-          {/* Processing indicator at end */}
-          {isProcessing && (
-            <MobileProcessingIndicator message={processingMessage} />
-          )}
-        </>
+        </div>
       )}
     </div>
   );
 }
 
 /**
- * UserPromptCard - Displays user's prompt in the feed
+ * Quick Actions Panel - Shown after build completion
  */
-function UserPromptCard({ prompt, timestamp }: { prompt: string; timestamp: string }) {
-  return (
-    <div className="flex gap-3 justify-end">
-      <div className="max-w-[85%] flex flex-col items-end">
-        <div className="px-4 py-3 rounded-2xl rounded-tr-md bg-violet-600 text-white">
-          <p className="text-sm leading-relaxed">{prompt}</p>
-        </div>
-        <span className="text-[10px] text-gray-600 mt-1 mr-1">{timestamp}</span>
-      </div>
-    </div>
-  );
-}
-
-/**
- * EmptyState - Shown when no activity yet
- */
-function EmptyState() {
-  return (
-    <div 
-      className="flex flex-col items-center justify-center h-full py-12 px-6 text-center"
-      data-testid="mobile-empty-state"
-    >
-      <div className="size-16 rounded-2xl bg-violet-500/10 flex items-center justify-center mb-4">
-        <Sparkles className="size-8 text-violet-400" />
-      </div>
-      <h3 className="text-lg font-semibold text-white mb-2">
-        Ready to build
-      </h3>
-      <p className="text-sm text-gray-500 max-w-[280px]">
-        Describe what you want to create and I'll generate the code for you. All changes will appear here.
-      </p>
-      
-      {/* Quick suggestions */}
-      <div className="flex flex-wrap justify-center gap-2 mt-6">
-        {['Build a landing page', 'Create a dashboard', 'Make a todo app'].map((suggestion) => (
-          <span
-            key={suggestion}
-            className="px-3 py-1.5 rounded-full bg-white/[0.06] text-xs text-gray-400 border border-white/[0.08]"
-          >
-            {suggestion}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/**
- * QuickActions - Suggested next actions after completion
- */
-function QuickActions({ onAction }: { onAction: (action: string) => void }) {
+function QuickActionsPanel({ onAction }: { onAction: (action: string) => void }) {
   const actions = [
-    'Add dark mode toggle',
-    'Improve mobile responsiveness',
-    'Add user authentication',
-    'Enhance animations',
+    { icon: Wand2, label: 'Enhance the design', prompt: 'Enhance the visual design with better spacing, colors, and animations' },
+    { icon: Zap, label: 'Add dark mode', prompt: 'Add a dark mode toggle with smooth theme switching' },
+    { icon: Layout, label: 'Improve mobile view', prompt: 'Improve the mobile responsiveness and touch interactions' },
   ];
 
   return (
-    <div className="pt-4 border-t border-white/[0.04]">
-      <div className="flex items-center gap-1.5 mb-3">
-        <Wand2 className="size-3.5 text-violet-400" />
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-          Quick Actions
+    <div className="pt-6 border-t border-white/[0.06]">
+      <div className="flex items-center gap-2 mb-4">
+        <Sparkles className="size-4 text-violet-400" />
+        <span className="text-[12px] font-semibold uppercase tracking-wider text-gray-500">
+          Continue Building
         </span>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="space-y-2">
         {actions.map((action) => (
           <button
-            key={action}
-            onClick={() => onAction(action)}
-            className="group flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-zinc-900/80 px-3 py-2 text-xs text-gray-400 transition-all hover:border-violet-500/30 hover:bg-violet-500/[0.08] hover:text-violet-300 active:scale-95"
+            key={action.label}
+            onClick={() => onAction(action.prompt)}
+            className="w-full flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-left transition-all hover:bg-white/[0.06] hover:border-violet-500/20 active:scale-[0.99]"
           >
-            <ArrowRight className="size-3 opacity-0 -ml-1 transition-all group-hover:opacity-100 group-hover:ml-0 text-violet-400" />
-            {action}
+            <action.icon className="size-4 text-violet-400 shrink-0" />
+            <span className="text-[13px] font-medium text-gray-400">{action.label}</span>
+            <ArrowRight className="size-3.5 text-gray-600 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
           </button>
         ))}
       </div>
@@ -254,7 +319,7 @@ function QuickActions({ onAction }: { onAction: (action: string) => void }) {
 }
 
 /**
- * Helper to convert pipeline messages to feed items
+ * Helper to convert pipeline messages to feed items (for backward compatibility)
  */
 export function convertPipelineToFeedItems(
   messages: any[],

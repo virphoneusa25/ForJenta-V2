@@ -34,7 +34,7 @@ test.describe('Mobile Builder View (< 768px)', () => {
     await expect(page.locator('textarea[placeholder*="Continue building"]')).toBeVisible();
   });
 
-  test('mobile header displays project name and connection status', async ({ page }) => {
+  test('mobile header displays project name and ready status', async ({ page }) => {
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
     await page.waitForSelector('header', { state: 'visible' });
@@ -44,8 +44,8 @@ test.describe('Mobile Builder View (< 768px)', () => {
     const header = page.locator('header').first();
     await expect(header).toBeVisible();
     
-    // Connection status "Connected" should be visible
-    await expect(page.getByText('Connected')).toBeVisible();
+    // Status indicator "Ready" should be visible (premium redesign shows "Ready" instead of "Connected")
+    await expect(page.getByText('Ready', { exact: true })).toBeVisible();
   });
 
   test('mobile header has preview button', async ({ page }) => {
@@ -159,9 +159,10 @@ test.describe('Mobile Builder View (< 768px)', () => {
     const quickActionsBtn = page.getByRole('button', { name: /quick actions/i });
     await quickActionsBtn.click();
     
-    // Quick actions should appear
-    await expect(page.getByText('Quick Actions')).toBeVisible();
-    await expect(page.getByText('Add a feature')).toBeVisible();
+    // Quick actions panel should appear with premium styling
+    await expect(page.getByText('QUICK ACTIONS', { exact: false })).toBeVisible();
+    // Premium UI shows "Add feature" without "a"
+    await expect(page.getByText('Add feature')).toBeVisible();
   });
 });
 
@@ -173,9 +174,11 @@ test.describe('Desktop Builder View (>= 768px)', () => {
   test('renders desktop IDE layout at desktop viewport', async ({ page }) => {
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
-    // Wait for desktop layout - FILES should be visible
-    await page.waitForSelector('aside', { state: 'visible' });
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    // Wait for desktop layout to fully load - check for file in sidebar
+    await expect(page.locator('text=index.html').first()).toBeVisible();
+    
+    // Desktop shows "Files" label (case-sensitive check)
+    await expect(page.getByText('Files', { exact: true }).first()).toBeVisible();
     
     // Should show Code/App tabs in header
     await expect(page.getByRole('button', { name: 'Code' })).toBeVisible();
@@ -184,19 +187,18 @@ test.describe('Desktop Builder View (>= 768px)', () => {
   test('desktop view shows file sidebar', async ({ page }) => {
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
-    await page.waitForSelector('aside', { state: 'visible' });
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    // Wait for desktop layout
+    await expect(page.locator('text=index.html').first()).toBeVisible();
     
-    // File sidebar should be visible
-    const sidebar = page.locator('aside').filter({ hasText: 'Files' });
-    await expect(sidebar).toBeVisible();
+    // File sidebar should be visible with "Files" label
+    await expect(page.getByText('Files', { exact: true }).first()).toBeVisible();
   });
 
   test('desktop view shows terminal panel', async ({ page }) => {
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
-    await page.waitForSelector('aside', { state: 'visible' });
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    // Wait for desktop layout
+    await expect(page.locator('text=index.html').first()).toBeVisible();
     
     // Terminal panel - use first() to avoid strict mode error
     await expect(page.getByText('Terminal').first()).toBeVisible();
@@ -205,8 +207,8 @@ test.describe('Desktop Builder View (>= 768px)', () => {
   test('desktop view has save and run buttons', async ({ page }) => {
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
-    await page.waitForSelector('aside', { state: 'visible' });
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    // Wait for desktop layout
+    await expect(page.locator('text=index.html').first()).toBeVisible();
     
     // Save button in header
     await expect(page.getByRole('button', { name: /save/i }).first()).toBeVisible();
@@ -218,8 +220,8 @@ test.describe('Desktop Builder View (>= 768px)', () => {
   test('desktop view has AI panel toggle', async ({ page }) => {
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
-    await page.waitForSelector('aside', { state: 'visible' });
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    // Wait for desktop layout
+    await expect(page.locator('text=index.html').first()).toBeVisible();
     
     // AI button
     await expect(page.getByRole('button', { name: /ai/i }).first()).toBeVisible();
@@ -232,17 +234,17 @@ test.describe('Responsive Breakpoint Switching', () => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
-    // Verify desktop layout (FILES visible)
-    await page.waitForSelector('aside', { state: 'visible' });
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    // Verify desktop layout (Files visible)
+    await expect(page.locator('text=index.html').first()).toBeVisible();
+    await expect(page.getByText('Files', { exact: true }).first()).toBeVisible();
     
     // Resize to mobile
     await page.setViewportSize({ width: 375, height: 812 });
-    await page.waitForTimeout(500); // Allow React to re-render
+    await page.waitForLoadState('domcontentloaded');
     
     // Verify mobile layout
     await expect(page.getByText('Ready to build')).toBeVisible();
-    await expect(page.getByText('FILES').first()).not.toBeVisible();
+    await expect(page.getByText('Files', { exact: true }).first()).not.toBeVisible();
   });
 
   test('switches from mobile to desktop view on resize', async ({ page }) => {
@@ -256,21 +258,21 @@ test.describe('Responsive Breakpoint Switching', () => {
     
     // Resize to desktop
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.waitForTimeout(500); // Allow React to re-render
+    await page.waitForLoadState('domcontentloaded');
     
     // Verify desktop layout
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    await expect(page.getByText('Files', { exact: true }).first()).toBeVisible();
   });
 
   test('breakpoint at exactly 768px shows desktop view', async ({ page }) => {
     await page.setViewportSize({ width: 768, height: 1024 });
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
-    // Wait for the page to render
-    await page.waitForSelector('aside', { state: 'visible' });
+    // Wait for the page to render - check for file in sidebar
+    await expect(page.locator('text=index.html').first()).toBeVisible();
     
     // Should show desktop layout
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    await expect(page.getByText('Files', { exact: true }).first()).toBeVisible();
   });
 
   test('breakpoint at 767px shows mobile view', async ({ page }) => {
@@ -279,7 +281,6 @@ test.describe('Responsive Breakpoint Switching', () => {
     
     // Wait for the page to render
     await page.waitForSelector('header', { state: 'visible' });
-    await page.waitForTimeout(500);
     
     // Should show mobile layout
     await expect(page.getByText('Ready to build')).toBeVisible();
