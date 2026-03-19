@@ -475,26 +475,31 @@ export function useGenerationPipeline() {
       // ── Credit check ──
       const user = useAuthStore.getState().user;
       if (user) {
-        const check = await checkCredits(user.id, 'full_app_generation');
-        setCreditCheck(check);
-        if (!check.allowed) {
-          setState('failed');
-          addMessage('error', { step: 'credit_check', error: check.message, suggestion: 'Purchase more credits or upgrade your plan.' });
-          return { success: false, error: check.message, insufficientCredits: true, creditCheck: check };
+        try {
+          const check = await checkCredits(user.id, 'full_app_generation');
+          setCreditCheck(check);
+          if (!check.allowed) {
+            setState('failed');
+            addMessage('error', { step: 'credit_check', error: check.message, suggestion: 'Purchase more credits or upgrade your plan.' });
+            return { success: false, error: check.message, insufficientCredits: true, creditCheck: check };
+          }
+          const deduction = await deductCredits({
+            userId: user.id,
+            featureKey: 'full_app_generation',
+            source: 'ai_generation',
+            projectId: projectIdRef.current || undefined,
+            description: `App generation: ${prompt.substring(0, 80)}`,
+          });
+          if (!deduction.success) {
+            setState('failed');
+            addMessage('error', { step: 'credit_deduction', error: deduction.error || 'Failed to deduct credits' });
+            return { success: false, error: deduction.error };
+          }
+          console.log(`[Pipeline] Deducted credits. New balance: ${deduction.newBalance}`);
+        } catch (creditErr: any) {
+          // Credit system failure should not block generation
+          console.warn('[Pipeline] Credit check failed, continuing without credits:', creditErr.message);
         }
-        const deduction = await deductCredits({
-          userId: user.id,
-          featureKey: 'full_app_generation',
-          source: 'ai_generation',
-          projectId: projectIdRef.current || undefined,
-          description: `App generation: ${prompt.substring(0, 80)}`,
-        });
-        if (!deduction.success) {
-          setState('failed');
-          addMessage('error', { step: 'credit_deduction', error: deduction.error || 'Failed to deduct credits' });
-          return { success: false, error: deduction.error };
-        }
-        console.log(`[Pipeline] Deducted credits. New balance: ${deduction.newBalance}`);
       }
 
       const allSteps = initSteps();

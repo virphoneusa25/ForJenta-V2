@@ -226,11 +226,12 @@ function ProjectBuilderInner() {
         id: persistentProject.project_id,
         name: persistentProject.name,
         files: persistentFiles.map(f => ({
+          id: f.file_id || `pf-${f.path}`,
           path: f.path,
           content: f.content,
           language: f.language || 'text',
         })),
-        categories: persistentProject.categories || ['Web'],
+        categories: (persistentProject as any).categories || ['Web'],
         versions: [],
         terminal: [],
         createdAt: persistentProject.created_at,
@@ -368,25 +369,36 @@ function ProjectBuilderInner() {
     let createdCount = 0;
     if (!project || files.length === 0) return { updatedCount, createdCount };
 
+    // Try to update in the legacy store for UI compatibility
     const freshProject = useProjectStore.getState().getProject(project.id);
-    if (!freshProject) return { updatedCount, createdCount };
-
-    for (const newFile of files) {
-      const existing = freshProject.files.find((f) => f.path === newFile.path);
-      if (existing) {
-        updateFile(freshProject.id, existing.id, newFile.content);
-        addTerminalLine(`  Updated: ${newFile.path}`, 'info');
-        updatedCount++;
-      } else {
-        const fileToAdd: ProjectFile = {
-          id: `f-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          path: newFile.path,
-          content: newFile.content,
-          language: newFile.language || langFromPath(newFile.path),
-        };
-        addFileToProject(freshProject.id, fileToAdd);
-        addTerminalLine(`  Created: ${newFile.path}`, 'success');
-        createdCount++;
+    if (freshProject) {
+      for (const newFile of files) {
+        const existing = freshProject.files.find((f) => f.path === newFile.path);
+        if (existing) {
+          updateFile(freshProject.id, existing.id, newFile.content);
+          updatedCount++;
+        } else {
+          const fileToAdd: ProjectFile = {
+            id: `f-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            path: newFile.path,
+            content: newFile.content,
+            language: newFile.language || langFromPath(newFile.path),
+          };
+          addFileToProject(freshProject.id, fileToAdd);
+          createdCount++;
+        }
+        addTerminalLine(`  ${updatedCount > 0 ? 'Updated' : 'Created'}: ${newFile.path}`, updatedCount > 0 ? 'info' : 'success');
+      }
+    } else {
+      // No legacy project found — just count based on existing files
+      const existingPaths = new Set(project.files.map(f => f.path));
+      for (const newFile of files) {
+        if (existingPaths.has(newFile.path)) {
+          updatedCount++;
+        } else {
+          createdCount++;
+        }
+        addTerminalLine(`  ${existingPaths.has(newFile.path) ? 'Updated' : 'Created'}: ${newFile.path}`, existingPaths.has(newFile.path) ? 'info' : 'success');
       }
     }
     return { updatedCount, createdCount };
@@ -417,7 +429,13 @@ function ProjectBuilderInner() {
     // Use persistent generation flow
     const runAutoGenerate = async () => {
       const persistentGen = usePersistentProjectStore.getState();
-      const currentProject = persistentGen.currentProject;
+      let currentProject = persistentGen.currentProject;
+      
+      // If persistent project isn't loaded yet, wait briefly for loadProject to complete
+      if (!currentProject) {
+        await new Promise(r => setTimeout(r, 500));
+        currentProject = usePersistentProjectStore.getState().currentProject;
+      }
       
       if (currentProject) {
         // Create continuation record
@@ -461,7 +479,7 @@ function ProjectBuilderInner() {
             await persistentGen.updateGenerationRun(run.run_id, {
               status: 'failed',
               error_message: result?.error || 'Unknown error',
-            });
+            } as any);
             addTerminalLine(`> Build failed: ${result?.error || 'Unknown'}`, 'error');
           }
           return;
@@ -516,7 +534,21 @@ function ProjectBuilderInner() {
 
     // Use persistent generation to save projects properly
     const persistentGen = usePersistentProjectStore.getState();
-    const currentProject = persistentGen.currentProject;
+    let currentProject = persistentGen.currentProject;
+    
+    // Auto-create persistent project if we have a legacy project but no persistent one
+    if (!currentProject && project) {
+      console.log('[ProjectBuilder] Auto-creating persistent project from legacy...');
+      const newProject = await persistentGen.createProject(
+        project.name || 'Untitled Project',
+        prompt,
+        (project as any).description || prompt.slice(0, 200)
+      );
+      if (newProject) {
+        currentProject = newProject;
+        console.log('[ProjectBuilder] Created persistent project:', newProject.project_id);
+      }
+    }
     
     if (currentProject) {
       // Use persistent generation flow
@@ -603,7 +635,7 @@ ${prompt}
           await updateGenerationRun(run.run_id, {
             status: 'failed',
             error_message: result?.error || 'Unknown error',
-          });
+          } as any);
           
           addTerminalLine(`> Build failed: ${result?.error || 'Unknown'}`, 'error');
           credits.refresh();
@@ -613,7 +645,7 @@ ${prompt}
       }
     }
     
-    // Fallback: No persistent project, use direct pipeline
+    // Fallback: No persistent project available, use direct pipeline
     const context = project
       ? project.files.map((f) => `--- ${f.path} ---\n${f.content}`).join('\n\n')
       : '';

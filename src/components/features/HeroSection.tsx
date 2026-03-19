@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useProjectStore } from '@/stores/projectStore';
+import { usePersistentProjectStore } from '@/stores/persistentProjectStore';
 import { useAuthStore } from '@/stores/authStore';
 import { useToast } from '@/hooks/use-toast';
 import { savePendingPrompt, clearPendingPrompt } from '@/hooks/usePromptFlow';
@@ -26,6 +27,7 @@ export default function HeroSection() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const addProject = useProjectStore((s) => s.addProject);
+  const createPersistentProject = usePersistentProjectStore((s) => s.createProject);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   const [inputValue, setInputValue] = useState('');
@@ -56,15 +58,24 @@ export default function HeroSection() {
     createProjectAndRedirect(trimmed);
   };
 
-  /** Creates a placeholder project and redirects. Auto-generation happens in ProjectBuilder. */
-  const createProjectAndRedirect = (prompt: string) => {
-    const projectId = `proj-${Date.now()}`;
+  /** Creates a persistent project and redirects. Auto-generation happens in ProjectBuilder. */
+  const createProjectAndRedirect = async (prompt: string) => {
     const projectName = prompt
       .slice(0, 40)
       .replace(/\s+/g, '-')
       .replace(/[^a-zA-Z0-9-]/g, '')
       .toLowerCase() || 'new-project';
 
+    // Create persistent project in MongoDB first
+    const persistentProject = await createPersistentProject(
+      projectName,
+      prompt,
+      prompt.slice(0, 200)
+    );
+
+    const projectId = persistentProject?.project_id || `proj-${Date.now()}`;
+
+    // Also create local project for immediate UI compatibility
     addProject({
       id: projectId,
       name: projectName,
