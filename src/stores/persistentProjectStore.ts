@@ -517,4 +517,61 @@ export const usePersistentProjectStore = create<PersistentProjectState>((set, ge
       lastClassification: null,
     });
   },
+
+  // Revert file to a specific version
+  revertFileToVersion: async (path: string, versionId: string) => {
+    const { currentProject, currentFiles } = get();
+    if (!currentProject) return false;
+
+    try {
+      // Get the version content
+      const versions = await get().getFileVersions(path);
+      const targetVersion = versions.find(v => v.version_id === versionId);
+      
+      if (!targetVersion) {
+        console.error('[Projects] Version not found');
+        return false;
+      }
+
+      // Create a "revert" generation run
+      const runResponse = await fetch(`${API_URL}/api/projects/${currentProject.project_id}/prompts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ 
+          prompt: `Revert ${path} to version ${targetVersion.version_number}`,
+          force_rebuild: false
+        }),
+      });
+
+      if (!runResponse.ok) return false;
+      const runData = await runResponse.json();
+
+      // Save the reverted content
+      const saveResponse = await fetch(`${API_URL}/api/projects/${currentProject.project_id}/files`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          files: [{
+            path: targetVersion.path,
+            content: targetVersion.content,
+            language: currentFiles.find(f => f.path === path)?.language || 'text',
+          }],
+          run_id: runData.run.run_id,
+          prompt_id: runData.prompt.prompt_id,
+          change_reason: `Reverted to version ${targetVersion.version_number}`,
+        }),
+      });
+
+      if (saveResponse.ok) {
+        await get().refreshFiles();
+        await get().refreshPromptHistory();
+        return true;
+      }
+    } catch (error) {
+      console.error('[Projects] Error reverting file:', error);
+    }
+    return false;
+  },
 }));

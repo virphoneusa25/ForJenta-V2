@@ -31,9 +31,13 @@ import {
   Tablet,
   Monitor,
   History,
+  Github,
+  Diff,
+  FolderGit2,
 } from 'lucide-react';
 import { useProjectStore } from '@/stores/projectStore';
 import { usePersistentProjectStore } from '@/stores/persistentProjectStore';
+import { useAuthStore } from '@/stores/authStore';
 import { useToast } from '@/hooks/use-toast';
 import { useGenerationPipeline } from '@/hooks/useGenerationPipeline';
 import { usePersistentGeneration } from '@/hooks/usePersistentGeneration';
@@ -45,6 +49,9 @@ import MonacoEditor from '@/components/features/builder/MonacoEditor';
 import PreviewConsole from '@/components/features/builder/PreviewConsole';
 import PromptHistory from '@/components/features/builder/PromptHistory';
 import ContinuationPromptComposer from '@/components/features/builder/ContinuationPromptComposer';
+import WhatChangedPanel from '@/components/features/builder/WhatChangedPanel';
+import FileDiffViewer from '@/components/features/builder/FileDiffViewer';
+import GitHubPushPanel from '@/components/features/builder/GitHubPushPanel';
 import type { ProjectFile } from '@/types';
 import { renderPreviewHTML, buildPlaceholderHTML } from '@/lib/previewRenderer';
 import CreditDisplay from '@/components/features/credits/CreditDisplay';
@@ -196,6 +203,19 @@ function ProjectBuilderInner() {
   const addTerminalLine = useProjectStore((s) => s.addTerminalLine);
   const { toast } = useToast();
 
+  // Persistent project store
+  const persistentProject = usePersistentProjectStore((s) => s.currentProject);
+  const persistentFiles = usePersistentProjectStore((s) => s.currentFiles);
+  const promptHistory = usePersistentProjectStore((s) => s.promptHistory);
+  const currentRun = usePersistentProjectStore((s) => s.currentRun);
+  const lastClassification = usePersistentProjectStore((s) => s.lastClassification);
+  const loadProject = usePersistentProjectStore((s) => s.loadProject);
+  const getFileVersions = usePersistentProjectStore((s) => s.getFileVersions);
+  const revertFileToVersion = usePersistentProjectStore((s) => s.revertFileToVersion);
+  
+  // GitHub connection
+  const githubConnection = useAuthStore((s) => s.githubConnection);
+
   // Generation pipeline
   const pipeline = useGenerationPipeline();
 
@@ -216,6 +236,19 @@ function ProjectBuilderInner() {
   const [terminalCollapsed, setTerminalCollapsed] = useState(false);
   const [insufficientCreditsModal, setInsufficientCreditsModal] = useState<CreditCheckResult | null>(null);
   const credits = useCredits();
+  
+  // New panel states
+  const [showPromptHistory, setShowPromptHistory] = useState(false);
+  const [showWhatChanged, setShowWhatChanged] = useState(false);
+  const [showGitHubPush, setShowGitHubPush] = useState(false);
+  const [showDiffViewer, setShowDiffViewer] = useState(false);
+  const [diffViewerData, setDiffViewerData] = useState<{
+    path: string;
+    oldContent: string;
+    newContent: string;
+    oldVersion: number;
+    newVersion: number;
+  } | null>(null);
 
   // Auto-preview: debounced refresh when files change
   const autoPreviewTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -488,6 +521,63 @@ function ProjectBuilderInner() {
     toast({ title: 'Version restored' });
   };
 
+  // ── New handlers for persistent features ──
+  
+  // View diff for a file
+  const handleViewDiff = async (path: string) => {
+    const versions = await getFileVersions(path);
+    if (versions.length < 2) {
+      toast({ title: 'No previous version', description: 'This file has no version history to compare.' });
+      return;
+    }
+    
+    const currentVersion = versions[0];
+    const previousVersion = versions[1];
+    
+    setDiffViewerData({
+      path,
+      oldContent: previousVersion.content,
+      newContent: currentVersion.content,
+      oldVersion: previousVersion.version_number,
+      newVersion: currentVersion.version_number,
+    });
+    setShowDiffViewer(true);
+  };
+
+  // Revert file to previous version
+  const handleRevertFile = async (path: string) => {
+    const versions = await getFileVersions(path);
+    if (versions.length < 2) {
+      toast({ title: 'Cannot revert', description: 'No previous version available.', variant: 'destructive' });
+      return;
+    }
+    
+    const previousVersion = versions[1];
+    const confirmed = window.confirm(`Revert ${path} to version ${previousVersion.version_number}?`);
+    
+    if (confirmed) {
+      const success = await revertFileToVersion(path, previousVersion.version_id);
+      if (success) {
+        toast({ title: 'File reverted', description: `${path} restored to version ${previousVersion.version_number}` });
+        setPreviewKey((k) => k + 1);
+      } else {
+        toast({ title: 'Revert failed', variant: 'destructive' });
+      }
+    }
+  };
+
+  // Open file in editor
+  const handleOpenFileFromPanel = (path: string) => {
+    if (!project) return;
+    const idx = project.files.findIndex((f) => f.path === path);
+    if (idx >= 0) {
+      setActiveFileIdx(idx);
+      setShowPreview(false);
+      setShowWhatChanged(false);
+      addTerminalLine(`> Opened: ${path}`, 'info');
+    }
+  };
+
   const handleNewFile = () => {
     if (!project) return;
     const path = prompt('File path (e.g. components/Header.jsx):');
@@ -574,8 +664,28 @@ function ProjectBuilderInner() {
           <button onClick={() => setShowGenPanel(!showGenPanel)} className="flex items-center gap-1.5 rounded-md bg-gradient-to-r from-violet-600 to-fuchsia-600 px-2.5 py-1.5 text-xs font-medium text-white hover:opacity-90">
             <MessageSquare className="size-3" /><span className="hidden md:inline">AI</span>
           </button>
+          <button 
+            onClick={() => setShowPromptHistory(!showPromptHistory)} 
+            className={`hidden items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-white hover:bg-zinc-700 md:flex ${showPromptHistory ? 'bg-violet-600' : 'bg-zinc-800'}`}
+          >
+            <History className="size-3" /><span>History</span>
+          </button>
+          <button 
+            onClick={() => setShowWhatChanged(!showWhatChanged)} 
+            className={`hidden items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-white hover:bg-zinc-700 md:flex ${showWhatChanged ? 'bg-blue-600' : 'bg-zinc-800'}`}
+            title="What Changed"
+          >
+            <Diff className="size-3" /><span>Changes</span>
+          </button>
+          <button 
+            onClick={() => setShowGitHubPush(!showGitHubPush)} 
+            className={`hidden items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-white hover:bg-zinc-700 md:flex ${showGitHubPush ? 'bg-emerald-600' : 'bg-zinc-800'}`}
+            title="Push to GitHub"
+          >
+            <Github className="size-3" /><span>Push</span>
+          </button>
           <button onClick={() => setShowVersions(!showVersions)} className="hidden items-center gap-1.5 rounded-md bg-zinc-800 px-2.5 py-1.5 text-xs text-white hover:bg-zinc-700 md:flex">
-            <Clock className="size-3" /><span>History</span>
+            <Clock className="size-3" /><span>Versions</span>
           </button>
           <button onClick={handleDownload} className="hidden items-center gap-1.5 rounded-md bg-zinc-800 px-2.5 py-1.5 text-xs text-white hover:bg-zinc-700 md:flex" aria-label="Download">
             <Download className="size-3" />
@@ -879,6 +989,80 @@ function ProjectBuilderInner() {
             onDebug={handleDebugRepair}
             onFileClick={handleFileChipClick}
           />
+        </div>
+      )}
+
+      {/* ═══ NEW SIDE PANELS ═══ */}
+      
+      {/* Prompt History Panel */}
+      {showPromptHistory && (
+        <div className="fixed right-0 top-12 bottom-0 w-80 z-40 border-l border-white/10 bg-zinc-950 shadow-2xl">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
+            <h3 className="text-sm font-medium text-white">Build History</h3>
+            <button onClick={() => setShowPromptHistory(false)} className="p-1 hover:bg-white/10 rounded">
+              <X className="size-4 text-gray-500" />
+            </button>
+          </div>
+          <div className="h-[calc(100%-44px)] overflow-hidden">
+            <PromptHistory />
+          </div>
+        </div>
+      )}
+
+      {/* What Changed Panel */}
+      {showWhatChanged && (
+        <div className="fixed right-0 top-12 bottom-0 w-80 z-40 border-l border-white/10 bg-zinc-950 shadow-2xl">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
+            <h3 className="text-sm font-medium text-white">What Changed</h3>
+            <button onClick={() => setShowWhatChanged(false)} className="p-1 hover:bg-white/10 rounded">
+              <X className="size-4 text-gray-500" />
+            </button>
+          </div>
+          <div className="h-[calc(100%-44px)] overflow-hidden">
+            <WhatChangedPanel
+              run={currentRun}
+              filesPreserved={project?.files.filter(f => 
+                !currentRun?.files_created?.includes(f.path) && 
+                !currentRun?.files_updated?.includes(f.path)
+              ).map(f => f.path) || []}
+              onViewDiff={handleViewDiff}
+              onRevertFile={handleRevertFile}
+              onOpenFile={handleOpenFileFromPanel}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* GitHub Push Panel */}
+      {showGitHubPush && (
+        <div className="fixed right-0 top-12 bottom-0 w-96 z-40 border-l border-white/10 bg-zinc-950 shadow-2xl">
+          <GitHubPushPanel
+            projectFiles={project?.files.map(f => ({ path: f.path, content: f.content })) || []}
+            projectName={project?.name || 'Project'}
+            onClose={() => setShowGitHubPush(false)}
+          />
+        </div>
+      )}
+
+      {/* File Diff Viewer Modal */}
+      {showDiffViewer && diffViewerData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <div className="w-full max-w-5xl h-[80vh] rounded-xl border border-white/10 bg-zinc-950 overflow-hidden shadow-2xl">
+            <FileDiffViewer
+              path={diffViewerData.path}
+              oldContent={diffViewerData.oldContent}
+              newContent={diffViewerData.newContent}
+              oldVersion={diffViewerData.oldVersion}
+              newVersion={diffViewerData.newVersion}
+              changeType="updated"
+              onClose={() => { setShowDiffViewer(false); setDiffViewerData(null); }}
+              onRevert={() => {
+                handleRevertFile(diffViewerData.path);
+                setShowDiffViewer(false);
+                setDiffViewerData(null);
+              }}
+            />
+          </div>
         </div>
       )}
     </div>
