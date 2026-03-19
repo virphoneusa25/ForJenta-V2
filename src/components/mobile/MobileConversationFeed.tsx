@@ -1,12 +1,17 @@
 /**
  * MobileConversationFeed - Main conversation/activity feed for mobile builder
+ * 
+ * Now supports both legacy pipeline messages and new AgentMessage format
+ * for the Smart AI Build Agent.
  */
 
 import { useRef, useEffect } from 'react';
-import { Sparkles, User } from 'lucide-react';
+import { Sparkles, User, Wand2, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import MobileFileActionCard from './MobileFileActionCard';
 import MobileBuildMessageCard, { MobileProcessingIndicator } from './MobileBuildMessageCard';
+import AgentMessageCard, { AgentThinkingIndicator } from './AgentMessageCard';
+import type { AgentMessage, NarrationStatus } from '@/lib/agent';
 
 type FeedItemType = 
   | 'user_prompt'
@@ -43,6 +48,10 @@ interface MobileConversationFeedProps {
   processingMessage?: string;
   onOpenFile?: (path: string) => void;
   onViewFileFull?: (path: string) => void;
+  // New agent-based props
+  agentMessages?: AgentMessage[];
+  agentStatus?: NarrationStatus;
+  onQuickAction?: (action: string) => void;
 }
 
 export default function MobileConversationFeed({
@@ -51,6 +60,9 @@ export default function MobileConversationFeed({
   processingMessage,
   onOpenFile,
   onViewFileFull,
+  agentMessages = [],
+  agentStatus,
+  onQuickAction,
 }: MobileConversationFeedProps) {
   const feedRef = useRef<HTMLDivElement>(null);
 
@@ -62,12 +74,16 @@ export default function MobileConversationFeed({
         behavior: 'smooth',
       });
     }
-  }, [items.length, isProcessing]);
+  }, [items.length, isProcessing, agentMessages.length]);
 
   const formatTime = (timestamp: string) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
+
+  // Determine if we should use agent messages or legacy items
+  const useAgentMode = agentMessages.length > 0;
+  const isComplete = agentStatus === 'complete';
 
   return (
     <div
@@ -75,9 +91,33 @@ export default function MobileConversationFeed({
       className="flex-1 overflow-y-auto px-4 py-4 space-y-4 scrollbar-thin"
       data-testid="mobile-conversation-feed"
     >
-      {items.length === 0 && !isProcessing ? (
+      {/* Empty state when no content */}
+      {!useAgentMode && items.length === 0 && !isProcessing ? (
         <EmptyState />
+      ) : useAgentMode ? (
+        /* Agent-based conversation feed */
+        <>
+          {agentMessages.map((message, index) => (
+            <AgentMessageCard
+              key={message.id}
+              message={message}
+              isLatest={index === agentMessages.length - 1}
+              onFileClick={onOpenFile}
+            />
+          ))}
+
+          {/* Show thinking indicator when agent is working */}
+          {isProcessing && agentStatus && agentStatus !== 'complete' && agentStatus !== 'failed' && (
+            <AgentThinkingIndicator status={agentStatus} message={processingMessage} />
+          )}
+
+          {/* Quick actions after completion */}
+          {isComplete && onQuickAction && (
+            <QuickActions onAction={onQuickAction} />
+          )}
+        </>
       ) : (
+        /* Legacy pipeline-based feed */
         <>
           {items.map((item) => (
             <div key={item.id}>
@@ -172,6 +212,41 @@ function EmptyState() {
           >
             {suggestion}
           </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * QuickActions - Suggested next actions after completion
+ */
+function QuickActions({ onAction }: { onAction: (action: string) => void }) {
+  const actions = [
+    'Add dark mode toggle',
+    'Improve mobile responsiveness',
+    'Add user authentication',
+    'Enhance animations',
+  ];
+
+  return (
+    <div className="pt-4 border-t border-white/[0.04]">
+      <div className="flex items-center gap-1.5 mb-3">
+        <Wand2 className="size-3.5 text-violet-400" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+          Quick Actions
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {actions.map((action) => (
+          <button
+            key={action}
+            onClick={() => onAction(action)}
+            className="group flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-zinc-900/80 px-3 py-2 text-xs text-gray-400 transition-all hover:border-violet-500/30 hover:bg-violet-500/[0.08] hover:text-violet-300 active:scale-95"
+          >
+            <ArrowRight className="size-3 opacity-0 -ml-1 transition-all group-hover:opacity-100 group-hover:ml-0 text-violet-400" />
+            {action}
+          </button>
         ))}
       </div>
     </div>

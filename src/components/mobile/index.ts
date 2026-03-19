@@ -12,3 +12,4 @@ export { default as MobileToolsSheet } from './MobileToolsSheet';
 export { default as MobilePreviewSheet } from './MobilePreviewSheet';
 export { default as MobileConversationFeed, convertPipelineToFeedItems } from './MobileConversationFeed';
 export { default as MobileBuilderView } from './MobileBuilderView';
+export { default as AgentMessageCard, AgentThinkingIndicator } from './AgentMessageCard';

@@ -161,6 +161,44 @@ System automatically classifies prompts as:
 - Mobile, tablet, desktop viewport modes
 - Version history
 
+#### Smart AI Build Agent (NEW - March 19, 2026)
+The generator has been rebuilt into a smart, goal-driven, conversational AI build agent.
+
+**Core Agent Modules** (`/app/src/lib/agent/`):
+- `TaskClassifier.ts` - Automatic task intent classification (15+ task types)
+- `ProjectInspector.ts` - Project context analysis and pattern detection
+- `AgentNarrator.ts` - Real-time streaming thought narration
+- `SmartBuildAgent.ts` - Main orchestrator for goal-driven generation
+
+**Task Types Supported**:
+- Create new project
+- Continue existing project
+- Add/modify features
+- Redesign UI
+- Repair preview issues
+- Fix bugs
+- Create tests
+- Validate features
+- Refactor code
+- Improve mobile UI
+- Connect backend/API
+- Update authentication
+- Run verification
+- Inspect project
+
+**Agent Behavior**:
+1. Classifies user prompt into task type automatically
+2. Inspects existing project context before making changes
+3. Plans changes and identifies targeted files
+4. Narrates work in real-time with streaming thoughts
+5. Shows file actions inline (Created, Updated, Repaired, etc.)
+6. Auto-validates ALL changes
+7. Auto-verifies after each significant change
+8. Continues multi-step work autonomously
+9. Extends existing projects by default (not rebuild)
+
+**React Hook**: `useSmartAgent.ts` - Integrates agent with generation pipeline
+
 ## Prioritized Backlog
 
 ### P0 (Critical)
@@ -174,9 +212,12 @@ System automatically classifies prompts as:
 - ✅ GitHub push integration
 - ✅ What Changed panel
 - ✅ Mobile-first builder UI redesign
+- ✅ Smart AI Build Agent with task classification
+- ✅ Real-time streaming agent narration
+- ✅ Auto-verification of ALL changes
 
 ### P1 (High)
-- Smart Auto-Repair for preview errors
+- Smart Auto-Repair for preview errors (integrate with agent)
 - GitHub "Pull from Repo" feature
 - Auto-save during generation
 - Add Vue.js project detection and preview support
@@ -195,7 +236,8 @@ System automatically classifies prompts as:
 - Pull from GitHub to project
 
 ## Next Tasks
-1. Smart Auto-Repair feature for preview errors
-2. GitHub "Pull from Repo" feature  
-3. Add auto-save during generation
-4. Implement project templates for quick starts
+1. Complete integration of SmartBuildAgent with ProjectBuilder.tsx
+2. Smart Auto-Repair feature for preview errors
+3. GitHub "Pull from Repo" feature  
+4. Add auto-save during generation
+5. Implement project templates for quick starts
