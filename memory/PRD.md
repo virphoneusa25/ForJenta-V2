@@ -13,9 +13,9 @@ ForJenta is a premium, persistent, project-based AI code generation IDE. Users d
 - **State Management**: `persistentProjectStore` (primary, MongoDB-backed) + `projectStore` (legacy, localStorage fallback)
 
 ### Key User Flows
-1. **Homepage → Create Project**: User types prompt → persistent project created in MongoDB → redirected to builder → auto-generation starts
-2. **Workspace → Continue Project**: User sees all projects → clicks to continue → loads persistent project → submits follow-up prompts
-3. **Builder → Generate Code**: User submits prompt → credit check → AI generates files → files saved to both persistent and legacy stores → preview available
+1. **Homepage -> Create Project**: User types prompt -> persistent project created in MongoDB -> redirected to builder -> auto-generation starts
+2. **Workspace -> Continue Project**: User sees all projects -> clicks to continue -> loads persistent project -> submits follow-up prompts
+3. **Builder -> Generate Code**: User submits prompt -> credit check -> AI generates files -> files saved to both persistent and legacy stores -> preview available
 
 ### Database Schema (MongoDB)
 - `users` - User accounts and auth info
@@ -28,7 +28,7 @@ ForJenta is a premium, persistent, project-based AI code generation IDE. Users d
 
 ### API Endpoints
 - `POST /api/auth/google/login` - Google OAuth
-- `POST /api/auth/github/login` - GitHub OAuth  
+- `POST /api/auth/github/login` - GitHub OAuth
 - `GET /api/auth/me` - Get current user
 - `GET/POST /api/projects/` - List/Create projects
 - `GET/PUT /api/projects/{id}` - Get/Update project
@@ -47,26 +47,19 @@ ForJenta is a premium, persistent, project-based AI code generation IDE. Users d
 - [x] Mobile-first builder redesign with glass-morphism UI
 - [x] Smart Agent foundation (TaskClassifier, ProjectInspector, AgentNarrator)
 
-### Bug Fixes Applied (March 2026)
-- [x] **P0: Build Failure** - Vite/SWC syntax error in ProjectBuilder.tsx resolved
-- [x] **P0: Generator Reset Bug** - Fixed multiple root causes:
-  - HeroSection now creates persistent projects via API before redirecting
-  - Project memo includes file IDs when using persistent store data
-  - Credit check wrapped in try-catch to prevent pipeline crashes
-  - `applyFiles` handles both legacy and persistent stores gracefully
-  - `handleSend` auto-creates persistent project if one doesn't exist
+### Bug Fixes Applied (March 19, 2026)
+- [x] **P0 CRITICAL: Generator Reset Bug (Desktop + Mobile)** - Root cause: `onSend={handleSend}` passed React MouseEvent as `overridePrompt` parameter, causing `(event).trim()` to crash. Fixed all 3 instances in ProjectBuilder.tsx (lines 878, 1086, 1364) to `onSend={() => handleSend()}`. Verified working on both 1920px desktop and 375px mobile viewports.
+- [x] **P0: Build Failure** - Vite/SWC syntax error resolved (from prior session)
+- [x] **Supporting fixes**: HeroSection creates persistent projects, project memo includes file IDs, credit check wrapped in try-catch, applyFiles handles both stores
 - [x] **P1: Mobile Scrolling** - Workspace page scrolling verified working
 
 ### Pending/Backlog Tasks
-#### P0 (Critical)
-- None currently
-
 #### P1 (High Priority)
 - Smart Auto-Repair: Detect and fix preview errors automatically
 - GitHub Integration: "Pull from GitHub" feature
 - Auto-Save during code generation
 
-#### P2 (Nice to Have)  
+#### P2 (Nice to Have)
 - Project Templates: Start from React/HTML/TypeScript templates
 - Expanded Framework Support: Vue, Svelte
 - Full Smart Agent integration (streaming narration, auto-verify)
