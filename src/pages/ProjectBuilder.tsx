@@ -875,7 +875,7 @@ ${prompt}
           promptHistory={promptHistory}
           chatInput={chatInput}
           setChatInput={setChatInput}
-          onSend={handleSend}
+          onSend={() => handleSend()}
           onSave={handleSave}
           onDownload={handleDownload}
           onNewFile={handleNewFile}
@@ -1083,7 +1083,7 @@ ${prompt}
               chatInput={chatInput}
               setChatInput={setChatInput}
               isGenerating={pipeline.isGenerating}
-              onSend={handleSend}
+              onSend={() => handleSend()}
               onClose={() => setShowGenPanel(false)}
               onDebug={handleDebugRepair}
               onFileClick={handleFileChipClick}
@@ -1361,7 +1361,7 @@ ${prompt}
             chatInput={chatInput}
             setChatInput={setChatInput}
             isGenerating={pipeline.isGenerating}
-            onSend={handleSend}
+            onSend={() => handleSend()}
             onClose={() => setShowGenPanel(false)}
             onDebug={handleDebugRepair}
             onFileClick={handleFileChipClick}

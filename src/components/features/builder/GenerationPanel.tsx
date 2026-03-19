@@ -892,10 +892,12 @@ export default function GenerationPanel({
             placeholder={isGenerating ? 'Generation in progress...' : 'Describe your web app...'}
             className="flex-1 bg-transparent text-sm text-white outline-none placeholder-gray-500"
             disabled={isGenerating}
+            data-testid="generation-input"
           />
           <button
             onClick={onSend}
             disabled={isGenerating || !chatInput.trim()}
+            data-testid="generation-send-btn"
             className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-600 text-white transition-all hover:bg-violet-500 disabled:opacity-30 disabled:bg-zinc-700"
             aria-label="Send"
           >
