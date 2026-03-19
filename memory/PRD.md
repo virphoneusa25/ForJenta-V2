@@ -32,11 +32,20 @@ Clone the repository https://github.com/virphoneusa25/ForJenta-9bg3j5.git and:
 3. **Dependencies**
    - Installed missing `@monaco-editor/react` package
 
+### UX Enhancements
+1. **Project Type Indicator Badge** (Added)
+   - Added `detectProjectType()` function to identify project type
+   - Added `ProjectTypeBadge` component showing color-coded badge
+   - Types detected: React+TypeScript (blue), React (cyan), HTML+JavaScript (orange), HTML (amber)
+   - Badge appears in preview header next to viewport size indicator
+   - Helps users understand what preview mode is being used
+
 ### Core Features Working
 - Homepage at `/` 
 - Workspace at `/workspace`
 - Project Builder with file editor (Monaco)
 - Live preview with auto-refresh
+- **Project type badge** showing preview mode
 - Console panel showing preview logs
 - Code/App view toggle
 - Mobile, tablet, desktop viewport modes
@@ -46,10 +55,11 @@ Clone the repository https://github.com/virphoneusa25/ForJenta-9bg3j5.git and:
 
 ### P0 (Critical)
 - ✅ Live preview working for all project types
+- ✅ Project type indicator badge
 
 ### P1 (High)
+- Add Vue.js project detection and preview support
 - Enhance preview loading states with better visual feedback
-- Add clear console on preview refresh option
 - Improve error recovery in preview
 
 ### P2 (Medium)
