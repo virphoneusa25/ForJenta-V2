@@ -1,16 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, Plus, FolderOpen, Sparkles, History, ChevronRight } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
+import { usePersistentProjectStore } from '@/stores/persistentProjectStore';
 import { useToast } from '@/hooks/use-toast';
 import { savePendingPrompt } from '@/hooks/usePromptFlow';
 import AuthModal from '@/components/features/AuthModal';
 import WorkspaceSidebar from '@/components/features/workspace/WorkspaceSidebar';
 import ComposerHero from '@/components/features/workspace/ComposerHero';
 import WorkspaceContentDeck from '@/components/features/workspace/WorkspaceContentDeck';
+import PersistentProjectCard from '@/components/features/workspace/PersistentProjectCard';
+import ProjectDetailPanel from '@/components/features/workspace/ProjectDetailPanel';
 import type { ProjectFile } from '@/types';
 import logoImg from '@/assets/logo.png';
+import { cn } from '@/lib/utils';
 
 export default function Workspace() {
   const navigate = useNavigate();
@@ -18,14 +22,29 @@ export default function Workspace() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const projects = useProjectStore((s) => s.projects);
   const addProject = useProjectStore((s) => s.addProject);
+  
+  // Persistent projects
+  const persistentProjects = usePersistentProjectStore((s) => s.projects);
+  const fetchProjects = usePersistentProjectStore((s) => s.fetchProjects);
+  const createPersistentProject = usePersistentProjectStore((s) => s.createProject);
+  const loadingProjects = usePersistentProjectStore((s) => s.loading);
 
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authPromptPreview, setAuthPromptPreview] = useState('');
   const [mobileSidebar, setMobileSidebar] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [showProjectDetail, setShowProjectDetail] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  // Fetch persistent projects on mount
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchProjects();
+    }
+  }, [isAuthenticated, fetchProjects]);
 
   /** Create a new project from the prompt and redirect to builder */
-  const createProjectFromPrompt = (prompt: string) => {
-    const projectId = `proj-${Date.now()}`;
+  const createProjectFromPrompt = async (prompt: string) => {
     const projectName =
       prompt
         .slice(0, 40)
@@ -33,6 +52,16 @@ export default function Workspace() {
         .replace(/[^a-zA-Z0-9-]/g, '')
         .toLowerCase() || 'new-project';
 
+    // Create persistent project first
+    const persistentProject = await createPersistentProject(
+      projectName,
+      prompt,
+      prompt.slice(0, 200)
+    );
+
+    // Also create local project for UI compatibility
+    const projectId = persistentProject?.project_id || `proj-${Date.now()}`;
+    
     const readmeFile: ProjectFile = {
       id: `f-${Date.now()}-readme`,
       path: 'README.md',
@@ -40,7 +69,7 @@ export default function Workspace() {
       language: 'markdown',
     };
 
-    // Set auto-generate flag BEFORE adding project so it's ready when ProjectBuilder mounts
+    // Set auto-generate flag
     sessionStorage.setItem(
       'forjenta_auto_generate',
       JSON.stringify({
@@ -66,7 +95,6 @@ export default function Workspace() {
       description: 'Setting up your workspace...',
     });
 
-    // Use setTimeout to ensure store is synced before navigation
     setTimeout(() => {
       navigate(`/project/${projectId}`);
     }, 50);
@@ -86,6 +114,17 @@ export default function Workspace() {
       setAuthModalOpen(true);
     }
   };
+
+  const handleProjectSelect = (projectId: string) => {
+    setSelectedProjectId(projectId);
+    // On mobile, show the detail panel
+    if (window.innerWidth < 1024) {
+      setShowProjectDetail(true);
+    }
+  };
+
+  // Combine persistent projects for display
+  const displayProjects = persistentProjects.length > 0 ? persistentProjects : [];
 
   return (
     <div className="flex h-screen overflow-hidden bg-black">
@@ -112,7 +151,7 @@ export default function Workspace() {
       )}
 
       {/* Main content area */}
-      <main className="flex flex-1 flex-col overflow-y-auto lg:ml-60">
+      <main className="flex flex-1 flex-col overflow-hidden lg:ml-60">
         {/* Mobile header */}
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/[0.06] bg-black px-4 lg:hidden">
           <button
@@ -129,15 +168,86 @@ export default function Workspace() {
           <div className="w-9" />
         </div>
 
-        {/* Hero composer */}
-        <ComposerHero onSubmit={handlePromptSubmit} />
+        {/* Content split view */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left panel - Projects list */}
+          <div className={cn(
+            "flex flex-col overflow-hidden border-r border-white/5",
+            selectedProjectId && window.innerWidth >= 1024 ? "w-1/2 xl:w-3/5" : "flex-1"
+          )}>
+            {/* Hero composer */}
+            <div className="shrink-0">
+              <ComposerHero onSubmit={handlePromptSubmit} />
+            </div>
 
-        {/* Content deck */}
-        <WorkspaceContentDeck
-          projects={projects}
-          onTemplateSelect={handlePromptSubmit}
-        />
+            {/* Projects section */}
+            {isAuthenticated && displayProjects.length > 0 && (
+              <div className="flex-1 overflow-y-auto px-4 lg:px-8 pb-8">
+                {/* Section header */}
+                <div className="flex items-center justify-between mb-4 sticky top-0 bg-black py-2 z-10">
+                  <div className="flex items-center gap-2">
+                    <History className="size-4 text-gray-500" />
+                    <h2 className="text-sm font-medium text-gray-400">Your Projects</h2>
+                    <span className="text-xs text-gray-600">({displayProjects.length})</span>
+                  </div>
+                </div>
+
+                {/* Project grid */}
+                <div className={cn(
+                  "grid gap-4",
+                  viewMode === 'grid' 
+                    ? "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3" 
+                    : "grid-cols-1"
+                )}>
+                  {displayProjects.map((project) => (
+                    <PersistentProjectCard
+                      key={project.project_id}
+                      project={project}
+                      onSelect={handleProjectSelect}
+                      isSelected={selectedProjectId === project.project_id}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Empty state or templates */}
+            {(!isAuthenticated || displayProjects.length === 0) && (
+              <WorkspaceContentDeck
+                projects={projects}
+                onTemplateSelect={handlePromptSubmit}
+              />
+            )}
+          </div>
+
+          {/* Right panel - Project detail (desktop) */}
+          {selectedProjectId && (
+            <div className="hidden lg:flex w-1/2 xl:w-2/5 flex-col border-l border-white/5">
+              <ProjectDetailPanel
+                projectId={selectedProjectId}
+                onClose={() => setSelectedProjectId(null)}
+              />
+            </div>
+          )}
+        </div>
       </main>
+
+      {/* Mobile project detail overlay */}
+      {showProjectDetail && selectedProjectId && (
+        <div className="fixed inset-0 z-50 lg:hidden animate-fade-in">
+          <div
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            onClick={() => setShowProjectDetail(false)}
+          />
+          <div className="absolute inset-x-0 bottom-0 top-14 z-10 bg-zinc-950 rounded-t-2xl overflow-hidden">
+            <ProjectDetailPanel
+              projectId={selectedProjectId}
+              onClose={() => setShowProjectDetail(false)}
+              isMobile
+            />
+          </div>
+        </div>
+      )}
 
       {/* Auth modal */}
       <AuthModal

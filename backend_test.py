@@ -262,9 +262,6 @@ class PersistentProjectAPITester:
             f"api/projects/{self.test_project_id}",
             200
         )
-            "api/github/repos",
-            404  # Should return 404 since GitHub not connected for test user
-        )
 
     def test_cors_headers(self):
         """Test CORS configuration"""
