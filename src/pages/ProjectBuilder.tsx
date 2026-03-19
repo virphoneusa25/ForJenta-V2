@@ -1,5 +1,5 @@
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -197,7 +197,9 @@ function TerminalPanel() {
 function ProjectBuilderInner() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const project = useProjectStore((s) => s.getProject(id || ''));
+  
+  // OLD non-persistent store - only used for legacy support
+  const legacyProject = useProjectStore((s) => s.getProject(id || ''));
   const updateFile = useProjectStore((s) => s.updateFile);
   const addFileToProject = useProjectStore((s) => s.addFile);
   const deleteFileFromProject = useProjectStore((s) => s.deleteFile);
@@ -206,7 +208,7 @@ function ProjectBuilderInner() {
   const addTerminalLine = useProjectStore((s) => s.addTerminalLine);
   const { toast } = useToast();
 
-  // Persistent project store
+  // Persistent project store - PRIMARY SOURCE OF TRUTH
   const persistentProject = usePersistentProjectStore((s) => s.currentProject);
   const persistentFiles = usePersistentProjectStore((s) => s.currentFiles);
   const promptHistory = usePersistentProjectStore((s) => s.promptHistory);
@@ -215,6 +217,29 @@ function ProjectBuilderInner() {
   const loadProject = usePersistentProjectStore((s) => s.loadProject);
   const getFileVersions = usePersistentProjectStore((s) => s.getFileVersions);
   const revertFileToVersion = usePersistentProjectStore((s) => s.revertFileToVersion);
+  
+  // USE PERSISTENT PROJECT AS PRIMARY, fall back to legacy
+  // Convert persistent project format to match the expected project shape
+  const project = React.useMemo(() => {
+    if (persistentProject && persistentFiles.length > 0) {
+      return {
+        id: persistentProject.project_id,
+        name: persistentProject.name,
+        files: persistentFiles.map(f => ({
+          path: f.path,
+          content: f.content,
+          language: f.language || 'text',
+        })),
+        categories: persistentProject.categories || ['Web'],
+        versions: [],
+        terminal: [],
+        createdAt: persistentProject.created_at,
+        updatedAt: persistentProject.updated_at,
+      };
+    }
+    // Fall back to legacy project if no persistent project loaded
+    return legacyProject;
+  }, [persistentProject, persistentFiles, legacyProject]);
   
   // GitHub connection
   const githubConnection = useAuthStore((s) => s.githubConnection);
