@@ -219,11 +219,9 @@ export default function Signup() {
     }
   };
 
-  const handleGoogleAuth = async () => {
-    const { error } = await signInWithGoogle();
-    if (error) {
-      toast({ title: 'Google sign-in failed', description: error, variant: 'destructive' });
-    }
+  const handleGoogleAuth = () => {
+    // Use Emergent Auth for Google OAuth
+    signInWithGoogle();
   };
 
   const stepIndicator = (
@@ -278,11 +276,11 @@ export default function Signup() {
 
         {step === 'email' && (
           <>
-            {/* Google OAuth - Temporarily disabled until provider is enabled */}
-            {/*
+            {/* Google OAuth via Emergent Auth */}
             <button
               onClick={handleGoogleAuth}
               className="flex w-full items-center justify-center gap-3 rounded-xl border border-white/10 bg-white/5 py-3 text-sm font-medium text-white transition-all hover:bg-white/10"
+              data-testid="google-signup-btn"
             >
               <svg className="size-4" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1Z" />
@@ -298,7 +296,6 @@ export default function Signup() {
               <span className="text-xs text-gray-600">or</span>
               <div className="h-px flex-1 bg-white/10" />
             </div>
-            */}
 
             <form onSubmit={handleSendOtp} className="flex flex-col gap-4">
               <div>

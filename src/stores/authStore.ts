@@ -1,229 +1,278 @@
 import { create } from 'zustand';
-import { supabase } from '@/lib/supabase';
 import type { User } from '@/types';
-import type { User as SupabaseUser } from '@supabase/supabase-js';
+
+const API_URL = import.meta.env.VITE_BACKEND_URL || '';
+
+interface GitHubConnection {
+  connected: boolean;
+  github_login: string | null;
+  github_avatar: string | null;
+}
 
 interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
   loading: boolean;
+  githubConnection: GitHubConnection | null;
 
-  /** Initialize auth — call once on app mount */
-  initialize: () => () => void;
+  /** Initialize auth — check existing session */
+  initialize: () => Promise<void>;
 
-  /** Map a Supabase user to our app User. Synchronous — no DB queries. */
-  mapSupabaseUser: (su: SupabaseUser) => User;
-
-  /** Set the user directly (used by the state listener) */
+  /** Set the user directly */
   setUser: (user: User | null) => void;
   setLoading: (v: boolean) => void;
 
-  /** Email/password login (real Supabase) */
+  /** Exchange Emergent session_id for session */
+  exchangeSessionId: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
+
+  /** Start Google OAuth via Emergent Auth */
+  signInWithGoogle: () => void;
+
+  /** Email/password login (Supabase fallback) */
   loginWithPassword: (email: string, password: string) => Promise<boolean>;
-
-  /** Email/password signup (real Supabase) */
-  signupWithPassword: (email: string, password: string) => Promise<boolean>;
-
-  /** Google OAuth (redirect-based) */
-  signInWithGoogle: () => Promise<{ error?: string }>;
 
   /** Sign out */
   logout: () => Promise<void>;
 
-  // ── Legacy mock methods kept for backward compatibility ──
-  login: (email: string, password: string) => boolean;
-  signup: (email: string, password: string) => boolean;
-}
-
-const DEMO_EMAIL = 'virphoneusa25@gmail.com';
-const DEMO_PASSWORD = 'Star3660!';
-
-/** Load legacy user from localStorage (for mock fallback) */
-function loadLegacyUser(): User | null {
-  const stored = localStorage.getItem('forjenta_user');
-  if (stored) return JSON.parse(stored);
-  return null;
-}
-
-function saveLegacyUser(user: User | null) {
-  if (user) localStorage.setItem('forjenta_user', JSON.stringify(user));
-  else localStorage.removeItem('forjenta_user');
+  /** GitHub connection methods */
+  connectGitHub: () => Promise<string>;
+  handleGitHubCallback: (code: string, state?: string) => Promise<boolean>;
+  disconnectGitHub: () => Promise<boolean>;
+  checkGitHubStatus: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-  user: loadLegacyUser(),
-  isAuthenticated: !!loadLegacyUser(),
+  user: null,
+  isAuthenticated: false,
   loading: true,
-
-  // ── Map Supabase user → app User (synchronous, no async/DB) ──
-  // Note: credits are now managed via credit_accounts table, not on User object.
-  // The User.credits field is kept for backward compatibility but the real
-  // source of truth is the useCredits() hook.
-  mapSupabaseUser: (su: SupabaseUser): User => ({
-    id: su.id,
-    email: su.email!,
-    credits: 0, // Real balance comes from credit_accounts table
-    trialEndsAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-    isTrialActive: true,
-  }),
+  githubConnection: null,
 
   setUser: (user) => {
-    saveLegacyUser(user);
     set({ user, isAuthenticated: !!user });
   },
 
   setLoading: (v) => set({ loading: v }),
 
-  // ── Initialize: getSession + onAuthStateChange ──
-  initialize: () => {
-    let mounted = true;
-    const { mapSupabaseUser, setUser, setLoading } = get();
+  // Initialize: Check existing session via /api/auth/me
+  initialize: async () => {
+    // CRITICAL: If returning from OAuth callback, skip the /me check.
+    // AuthCallback will exchange the session_id and establish the session first.
+    if (window.location.hash?.includes('session_id=')) {
+      set({ loading: false });
+      return;
+    }
 
-    // Safety #1: Check existing session (page refresh / OAuth return)
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!mounted) return;
-      if (session?.user) {
-        const appUser = mapSupabaseUser(session.user);
-        setUser(appUser);
-        console.log('[Auth] Session restored for', appUser.email);
+    try {
+      const response = await fetch(`${API_URL}/api/auth/me`, {
+        credentials: 'include',
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const user: User = {
+          id: data.user_id,
+          email: data.email,
+          credits: 25,
+          trialEndsAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+          isTrialActive: true,
+          name: data.name,
+          picture: data.picture,
+        };
+        set({ 
+          user, 
+          isAuthenticated: true,
+          githubConnection: {
+            connected: data.github_connected || false,
+            github_login: data.github_login || null,
+            github_avatar: null,
+          }
+        });
       }
-      setLoading(false);
-    });
-
-    // Safety #2: Listen to auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        if (!mounted) return;
-        console.log('[Auth] State change:', event);
-
-        if (event === 'SIGNED_IN' && session?.user) {
-          const appUser = mapSupabaseUser(session.user);
-          setUser(appUser);
-          setLoading(false);
-        } else if (event === 'SIGNED_OUT') {
-          setUser(null);
-          setLoading(false);
-        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-          const appUser = mapSupabaseUser(session.user);
-          setUser(appUser);
-        }
-      }
-    );
-
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
+    } catch (error) {
+      console.log('[Auth] No existing session');
+    } finally {
+      set({ loading: false });
+    }
   },
 
-  // ── Real Supabase email/password login ──
-  loginWithPassword: async (email, password) => {
+  // Exchange Emergent Auth session_id for session
+  exchangeSessionId: async (sessionId: string) => {
+    try {
+      const response = await fetch(`${API_URL}/api/auth/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        return { success: false, error: error.detail || 'Authentication failed' };
+      }
+
+      const data = await response.json();
+      
+      if (data.success && data.user) {
+        const user: User = {
+          id: data.user.user_id,
+          email: data.user.email,
+          credits: 25,
+          trialEndsAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+          isTrialActive: true,
+          name: data.user.name,
+          picture: data.user.picture,
+        };
+        set({ user, isAuthenticated: true });
+        return { success: true };
+      }
+
+      return { success: false, error: 'Invalid response' };
+    } catch (error) {
+      console.error('[Auth] Session exchange error:', error);
+      return { success: false, error: 'Network error' };
+    }
+  },
+
+  // Start Google OAuth via Emergent Auth
+  // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
+  signInWithGoogle: () => {
+    const redirectUrl = window.location.origin + '/workspace';
+    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+  },
+
+  // Email/password login (Supabase fallback - kept for compatibility)
+  loginWithPassword: async (email: string, password: string) => {
+    // This still uses Supabase for email/password auth
+    const { supabase } = await import('@/lib/supabase');
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    
     if (error) {
       console.error('[Auth] Login error:', error.message);
       return false;
     }
+    
     if (data.user) {
-      const appUser = get().mapSupabaseUser(data.user);
-      get().setUser(appUser);
-    }
-    return true;
-  },
-
-  // ── Real Supabase email/password signup ──
-  signupWithPassword: async (email, password) => {
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) {
-      console.error('[Auth] Signup error:', error.message);
-      return false;
-    }
-    if (data.user) {
-      const appUser = get().mapSupabaseUser(data.user);
-      get().setUser(appUser);
-    }
-    return true;
-  },
-
-  // ── Google OAuth (redirect — no loading state before redirect) ──
-  signInWithGoogle: async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: window.location.origin,
-        queryParams: { access_type: 'offline', prompt: 'consent' },
-        skipBrowserRedirect: false,
-      },
-    });
-
-    if (error) {
-      console.error('[Auth] Google OAuth error:', error.message);
-      return { error: error.message };
-    }
-    // Auto-redirects on success — no state update needed
-    return {};
-  },
-
-  // ── Sign out ──
-  logout: async () => {
-    await supabase.auth.signOut();
-    saveLegacyUser(null);
-    set({ user: null, isAuthenticated: false });
-  },
-
-  // ══════════════════════════════════════════════
-  // Legacy mock methods (email/password fallback)
-  // Used when Supabase is not configured for email auth
-  // ══════════════════════════════════════════════
-  login: (email: string, password: string) => {
-    const storedUsers = JSON.parse(localStorage.getItem('forjenta_users') || '[]') as User[];
-    const storedPasswords = JSON.parse(localStorage.getItem('forjenta_passwords') || '{}') as Record<string, string>;
-
-    if (email === DEMO_EMAIL && password === DEMO_PASSWORD) {
       const user: User = {
-        id: 'demo-user',
-        email: DEMO_EMAIL,
+        id: data.user.id,
+        email: data.user.email!,
         credits: 25,
         trialEndsAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
         isTrialActive: true,
       };
-      saveLegacyUser(user);
       set({ user, isAuthenticated: true });
-      return true;
     }
-
-    const existingUser = storedUsers.find((u) => u.email === email);
-    if (existingUser && storedPasswords[email] === password) {
-      saveLegacyUser(existingUser);
-      set({ user: existingUser, isAuthenticated: true });
-      return true;
-    }
-
-    return false;
+    return true;
   },
 
-  signup: (email: string, password: string) => {
-    const storedUsers = JSON.parse(localStorage.getItem('forjenta_users') || '[]') as User[];
-    const storedPasswords = JSON.parse(localStorage.getItem('forjenta_passwords') || '{}') as Record<string, string>;
+  // Sign out
+  logout: async () => {
+    try {
+      await fetch(`${API_URL}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch (error) {
+      console.error('[Auth] Logout error:', error);
+    }
+    
+    // Also sign out from Supabase if used
+    try {
+      const { supabase } = await import('@/lib/supabase');
+      await supabase.auth.signOut();
+    } catch {}
+    
+    localStorage.removeItem('forjenta_user');
+    set({ user: null, isAuthenticated: false, githubConnection: null });
+  },
 
-    if (storedUsers.find((u) => u.email === email) || email === DEMO_EMAIL) {
+  // Get GitHub connect URL
+  connectGitHub: async () => {
+    const response = await fetch(`${API_URL}/api/github/connect`, {
+      credentials: 'include',
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to get GitHub authorization URL');
+    }
+    
+    const data = await response.json();
+    return data.authorization_url;
+  },
+
+  // Handle GitHub OAuth callback
+  handleGitHubCallback: async (code: string, state?: string) => {
+    try {
+      const response = await fetch(`${API_URL}/api/github/callback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ code, state }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('[GitHub] Callback error:', error);
+        return false;
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        set({
+          githubConnection: {
+            connected: true,
+            github_login: data.github_login,
+            github_avatar: data.github_avatar,
+          }
+        });
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error('[GitHub] Callback error:', error);
       return false;
     }
+  },
 
-    const newUser: User = {
-      id: `user-${Date.now()}`,
-      email,
-      credits: 25,
-      trialEndsAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-      isTrialActive: true,
-    };
+  // Disconnect GitHub
+  disconnectGitHub: async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/github/disconnect`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
 
-    storedUsers.push(newUser);
-    storedPasswords[email] = password;
-    localStorage.setItem('forjenta_users', JSON.stringify(storedUsers));
-    localStorage.setItem('forjenta_passwords', JSON.stringify(storedPasswords));
+      if (response.ok) {
+        set({ githubConnection: { connected: false, github_login: null, github_avatar: null } });
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('[GitHub] Disconnect error:', error);
+      return false;
+    }
+  },
 
-    saveLegacyUser(newUser);
-    set({ user: newUser, isAuthenticated: true });
-    return true;
+  // Check GitHub connection status
+  checkGitHubStatus: async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/github/status`, {
+        credentials: 'include',
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        set({
+          githubConnection: {
+            connected: data.connected,
+            github_login: data.github_login,
+            github_avatar: data.github_avatar,
+          }
+        });
+      }
+    } catch (error) {
+      console.error('[GitHub] Status check error:', error);
+    }
   },
 }));

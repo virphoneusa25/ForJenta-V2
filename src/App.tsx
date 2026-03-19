@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, useLocation } from 'react-router-dom';
 import { Toaster } from '@/components/ui/toaster';
 import { useAuthStore } from '@/stores/authStore';
 import { useOAuthCallback } from '@/hooks/useOAuthCallback';
@@ -16,6 +16,8 @@ const AdminDashboard = lazy(() => import('@/pages/AdminDashboard'));
 const Workspace = lazy(() => import('@/pages/Workspace'));
 const Dashboard = lazy(() => import('@/pages/Dashboard'));
 const Billing = lazy(() => import('@/pages/Billing'));
+const AuthCallback = lazy(() => import('@/pages/AuthCallback'));
+const GitHubCallback = lazy(() => import('@/pages/GitHubCallback'));
 
 function LoadingFallback() {
   return (
@@ -43,11 +45,17 @@ function NotFound() {
 /** Handles auth initialization and OAuth callback processing */
 function AuthProvider({ children }: { children: React.ReactNode }) {
   const initialize = useAuthStore((s) => s.initialize);
+  const location = useLocation();
 
-  // Initialize Supabase auth session listener on app mount
+  // CRITICAL: Check URL for session_id synchronously during render
+  // This prevents race conditions where initialize() runs before AuthCallback
+  if (location.hash?.includes('session_id=')) {
+    return <AuthCallback />;
+  }
+
+  // Initialize auth session on app mount
   useEffect(() => {
-    const cleanup = initialize();
-    return cleanup;
+    initialize();
   }, [initialize]);
 
   // Handle OAuth redirect + pending prompt handoff
@@ -73,6 +81,8 @@ function App() {
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/billing" element={<Billing />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/auth/github/callback" element={<GitHubCallback />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
