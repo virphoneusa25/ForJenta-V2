@@ -43,6 +43,14 @@ interface MobileBuilderViewProps {
   agentMessages?: AgentMessage[];
   agentStatus?: NarrationStatus;
   
+  // Prompt history for conversation continuity
+  promptHistory?: Array<{
+    prompt_id: string;
+    content: string;
+    prompt_type: string;
+    created_at: string;
+  }>;
+  
   // Input state
   chatInput: string;
   setChatInput: (value: string) => void;
@@ -87,6 +95,7 @@ export default function MobileBuilderView({
   fileCards,
   agentMessages = [],
   agentStatus,
+  promptHistory = [],
   chatInput,
   setChatInput,
   onSend,
@@ -148,9 +157,38 @@ export default function MobileBuilderView({
   }, [isGenerating, generationState, agentStatus]);
 
   // Convert pipeline data to feed items (legacy support)
+  // Include prompt history for conversation continuity
   const feedItems = useMemo(() => {
-    return convertPipelineToFeedItems(pipelineMessages, fileCards);
-  }, [pipelineMessages, fileCards]);
+    const pipelineItems = convertPipelineToFeedItems(pipelineMessages, fileCards);
+    
+    // Also convert prompt history to feed items (for previously saved prompts)
+    const historyItems = promptHistory.map((p, idx) => ({
+      id: `history-${p.prompt_id}`,
+      type: 'user_prompt' as const,
+      timestamp: p.created_at,
+      prompt: p.content,
+    }));
+    
+    // Merge and sort by timestamp
+    // Filter out duplicate prompts (same content within 1 second)
+    const allItems = [...historyItems, ...pipelineItems];
+    const seen = new Set<string>();
+    const uniqueItems = allItems.filter(item => {
+      if (item.type === 'user_prompt' && item.prompt) {
+        const key = `${item.prompt.trim()}-${Math.floor(new Date(item.timestamp).getTime() / 1000)}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+      }
+      return true;
+    });
+    
+    return uniqueItems.sort((a, b) => 
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+  }, [pipelineMessages, fileCards, promptHistory]);
+
+  // Determine if we have any content (including history)
+  const hasHistory = promptHistory.length > 0 || pipelineMessages.length > 0;
 
   // Status message based on generation state
   const statusMessage = useMemo(() => {
@@ -200,8 +238,9 @@ export default function MobileBuilderView({
     // onSend(prompt);
   }, [setChatInput]);
 
-  const hasContent = files.length > 0;
-  const showPreviewCTA = hasContent && !isGenerating && !showPreviewSheet;
+  // Has content if files exist OR if there's conversation history
+  const hasContent = files.length > 0 || hasHistory;
+  const showPreviewCTA = files.length > 0 && !isGenerating && !showPreviewSheet;
 
   return (
     <div className="flex flex-col h-screen bg-black" data-testid="mobile-builder-view">

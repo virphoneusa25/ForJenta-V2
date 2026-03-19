@@ -17,8 +17,18 @@ test.describe('Project Builder - Persistent Project Loading', () => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
-    // Wait for the FILES section to appear (indicates project loaded)
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    // Wait for page to load
+    await page.waitForLoadState('load');
+    
+    // Check if we hit Cloudflare
+    const isCloudflare = await page.locator('text=Verify you are human').isVisible().catch(() => false);
+    if (isCloudflare) {
+      test.skip();
+      return;
+    }
+    
+    // Wait for the Files section to appear (indicates project loaded)
+    await expect(page.getByText('Files', { exact: true }).first()).toBeVisible();
     
     // Verify files are present in the file sidebar
     await expect(page.getByText('index.html').first()).toBeVisible();
@@ -31,7 +41,17 @@ test.describe('Project Builder - Persistent Project Loading', () => {
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
     // Wait for page to load
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    await page.waitForLoadState('load');
+    
+    // Check if we hit Cloudflare
+    const isCloudflare = await page.locator('text=Verify you are human').isVisible().catch(() => false);
+    if (isCloudflare) {
+      test.skip();
+      return;
+    }
+    
+    // Wait for page to load
+    await expect(page.getByText('index.html').first()).toBeVisible();
     
     // AI Builder panel should be visible
     await expect(page.getByText('AI Builder').first()).toBeVisible();
@@ -45,7 +65,17 @@ test.describe('Project Builder - Persistent Project Loading', () => {
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
     // Wait for page to load
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    await page.waitForLoadState('load');
+    
+    // Check if we hit Cloudflare
+    const isCloudflare = await page.locator('text=Verify you are human').isVisible().catch(() => false);
+    if (isCloudflare) {
+      test.skip();
+      return;
+    }
+    
+    // Wait for page to load
+    await expect(page.getByText('index.html').first()).toBeVisible();
     
     // History button should be visible in header
     const historyBtn = page.getByRole('button', { name: /history/i });
@@ -57,7 +87,17 @@ test.describe('Project Builder - Persistent Project Loading', () => {
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
     // Wait for page to load
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    await page.waitForLoadState('load');
+    
+    // Check if we hit Cloudflare
+    const isCloudflare = await page.locator('text=Verify you are human').isVisible().catch(() => false);
+    if (isCloudflare) {
+      test.skip();
+      return;
+    }
+    
+    // Wait for page to load
+    await expect(page.getByText('index.html').first()).toBeVisible();
     
     // Changes button should be visible in header
     const changesBtn = page.getByRole('button', { name: /changes/i });
@@ -69,7 +109,17 @@ test.describe('Project Builder - Persistent Project Loading', () => {
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
     // Wait for page to load
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    await page.waitForLoadState('load');
+    
+    // Check if we hit Cloudflare
+    const isCloudflare = await page.locator('text=Verify you are human').isVisible().catch(() => false);
+    if (isCloudflare) {
+      test.skip();
+      return;
+    }
+    
+    // Wait for page to load
+    await expect(page.getByText('index.html').first()).toBeVisible();
     
     // Versions button should be visible in header
     const versionsBtn = page.getByRole('button', { name: /versions/i });
@@ -81,7 +131,17 @@ test.describe('Project Builder - Persistent Project Loading', () => {
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
     // Wait for page to load
-    await expect(page.getByText('FILES').first()).toBeVisible();
+    await page.waitForLoadState('load');
+    
+    // Check if we hit Cloudflare
+    const isCloudflare = await page.locator('text=Verify you are human').isVisible().catch(() => false);
+    if (isCloudflare) {
+      test.skip();
+      return;
+    }
+    
+    // Wait for page to load
+    await expect(page.getByText('index.html').first()).toBeVisible();
     
     // Find the input field for prompts
     const promptInput = page.getByPlaceholder('Describe your web app').first();
@@ -225,6 +285,16 @@ test.describe('Project Navigation', () => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/workspace', { waitUntil: 'domcontentloaded' });
     
+    // Wait for page to load
+    await page.waitForLoadState('load');
+    
+    // Check if we hit Cloudflare
+    const isCloudflare = await page.locator('text=Verify you are human').isVisible().catch(() => false);
+    if (isCloudflare) {
+      test.skip();
+      return;
+    }
+    
     // Wait for workspace to load - look for main text
     await expect(page.getByPlaceholder('Describe what you want to build').first()).toBeVisible();
     
@@ -238,8 +308,8 @@ test.describe('Project Navigation', () => {
       // Should navigate to project builder
       await page.waitForURL(/\/project\//);
       
-      // Verify we're in the project builder - look for Files section
-      await expect(page.getByText('Files', { exact: true }).first()).toBeVisible();
+      // Verify we're in the project builder - look for file in sidebar
+      await expect(page.getByText('index.html').first()).toBeVisible();
     } else {
       // If no project in sidebar, skip this test
       test.skip();
@@ -250,8 +320,18 @@ test.describe('Project Navigation', () => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
     
-    // Wait for project builder to load - look for Files section
-    await expect(page.getByText('Files', { exact: true }).first()).toBeVisible();
+    // Wait for page to load
+    await page.waitForLoadState('load');
+    
+    // Check if we hit Cloudflare
+    const isCloudflare = await page.locator('text=Verify you are human').isVisible().catch(() => false);
+    if (isCloudflare) {
+      test.skip();
+      return;
+    }
+    
+    // Wait for project builder to load - look for file in sidebar
+    await expect(page.getByText('index.html').first()).toBeVisible();
     
     // Click back arrow to go to workspace
     const backButton = page.locator('button[aria-label="Back"]').first();
@@ -270,24 +350,28 @@ test.describe('Project Navigation', () => {
     
     // Go to project builder directly
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
+    await page.waitForLoadState('load');
     
-    // Wait for project to load - Files section indicates loaded
-    await expect(page.getByText('Files', { exact: true }).first()).toBeVisible();
+    // Check if we hit Cloudflare
+    const isCloudflare = await page.locator('text=Verify you are human').isVisible().catch(() => false);
+    if (isCloudflare) {
+      test.skip();
+      return;
+    }
     
-    // Note files are present
+    // Wait for project to load - file in sidebar indicates loaded
     await expect(page.getByText('index.html').first()).toBeVisible();
     
     // Navigate away to homepage
     await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await page.waitForLoadState('load');
     await expect(page.getByText('Build any app')).toBeVisible();
     
     // Return to project
     await page.goto('/project/proj-demo-1', { waitUntil: 'domcontentloaded' });
+    await page.waitForLoadState('load');
     
-    // Wait for project builder to load again
-    await expect(page.getByText('Files', { exact: true }).first()).toBeVisible();
-    
-    // Project files should still be visible
+    // Project files should still be visible (context preserved)
     await expect(page.getByText('index.html').first()).toBeVisible();
     await expect(page.getByText('styles.css').first()).toBeVisible();
   });

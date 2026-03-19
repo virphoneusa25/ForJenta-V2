@@ -815,6 +815,7 @@ ${prompt}
           fileCards={pipeline.fileCards}
           agentMessages={smartAgent.messages}
           agentStatus={smartAgent.status}
+          promptHistory={promptHistory}
           chatInput={chatInput}
           setChatInput={setChatInput}
           onSend={handleSend}

@@ -460,7 +460,11 @@ export function useGenerationPipeline() {
       abortRef.current = false;
       startTimeRef.current = Date.now();
 
-      setMessages([]);
+      // DO NOT CLEAR MESSAGES - preserve conversation history!
+      // Add user prompt to the existing conversation
+      addMessage('user_prompt', { prompt, categories });
+      
+      // Only reset generation-specific state, not conversation history
       setFileCards([]);
       setValidation(null);
       setRepairs([]);
@@ -498,7 +502,7 @@ export function useGenerationPipeline() {
       // ═══ STEP 1: Prompt Received ═══
       setState('prompt_received');
       advanceToStep('prompt');
-      addMessage('user_prompt', { prompt, categories });
+      // Note: user_prompt message already added at start of generate()
       await new Promise((r) => setTimeout(r, 120));
       completeStep('prompt', 'Prompt received', [
         { label: 'Prompt', value: prompt.substring(0, 100) + (prompt.length > 100 ? '...' : '') },
@@ -1042,7 +1046,24 @@ export function useGenerationPipeline() {
 
   const setProjectId = useCallback((id: string) => { projectIdRef.current = id; }, []);
 
-  const reset = useCallback(() => {
+  // Reset generation state only, optionally preserving conversation history
+  const reset = useCallback((options?: { preserveMessages?: boolean }) => {
+    abortRef.current = true;
+    setState('idle');
+    setSteps([]);
+    // Only clear messages if explicitly requested
+    if (!options?.preserveMessages) {
+      setMessages([]);
+    }
+    setFileCards([]);
+    setValidation(null);
+    setRepairs([]);
+    setSummary(null);
+    setCurrentFileIndex(-1);
+  }, []);
+  
+  // Full reset including conversation (for project switching)
+  const clearAll = useCallback(() => {
     abortRef.current = true;
     setState('idle');
     setSteps([]);
@@ -1065,6 +1086,7 @@ export function useGenerationPipeline() {
     currentFileIndex,
     generate,
     reset,
+    clearAll,
     addMessage,
     setProjectId,
     markFileRepaired,
