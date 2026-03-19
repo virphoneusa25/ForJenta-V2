@@ -697,11 +697,120 @@ function buildExecutionScript(registry: Map<string, ModuleRecord>, executionOrde
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// PLAIN HTML PROJECT RENDERER
+// ═══════════════════════════════════════════════════════════════════
+
+function renderPlainHTMLProject(files: ProjectFile[]): string {
+  const indexHtml = findFile(files, 'index.html');
+  if (!indexHtml) return '';
+
+  let html = indexHtml.content;
+
+  // Extract CSS files and inject as inline styles
+  const cssFiles = files.filter(f => f.path.endsWith('.css'));
+  if (cssFiles.length > 0) {
+    const cssContent = cssFiles.map(f => `/* ${f.path} */\n${f.content}`).join('\n\n');
+    // Insert CSS before </head> if exists, otherwise before </html>
+    if (html.includes('</head>')) {
+      html = html.replace('</head>', `<style>\n${cssContent}\n</style>\n</head>`);
+    } else if (html.includes('</html>')) {
+      html = html.replace('</html>', `<style>\n${cssContent}\n</style>\n</html>`);
+    }
+  }
+
+  // Find and inline JavaScript files
+  const jsFiles = files.filter(f => f.path.endsWith('.js') && !f.path.includes('.min.'));
+
+  // Replace script src references with inline scripts
+  for (const jsFile of jsFiles) {
+    const fileName = jsFile.path.split('/').pop() || jsFile.path;
+    // Match various forms: src="script.js", src='script.js', src="./script.js", etc.
+    const srcPattern = new RegExp(`<script[^>]*src=['"](?:\\.\\/)?${fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"][^>]*>\\s*<\\/script>`, 'gi');
+
+    if (srcPattern.test(html)) {
+      html = html.replace(srcPattern, `<script>\n${jsFile.content}\n</script>`);
+    }
+  }
+
+  // Inject console capture for preview console to work
+  const consoleCapture = `<script>
+(function(){
+  var oL=console.log,oW=console.warn,oE=console.error,oI=console.info;
+  function ser(a){return Array.from(a).map(function(x){if(x===null)return"null";if(x===undefined)return"undefined";if(typeof x==="object"){try{return JSON.stringify(x,null,2)}catch(e){return String(x)}}return String(x)}).join(" ")}
+  function s(l,a){try{parent.postMessage({type:"preview-console",level:l,message:ser(a),timestamp:new Date().toISOString()},"*")}catch(e){}}
+  console.log=function(){s("log",arguments);oL.apply(console,arguments)};
+  console.warn=function(){s("warn",arguments);oW.apply(console,arguments)};
+  console.error=function(){s("error",arguments);oE.apply(console,arguments)};
+  console.info=function(){s("info",arguments);oI.apply(console,arguments)};
+  window.onerror=function(m,src,l,c,e){s("error",["Runtime Error: "+m+(l?" (line "+l+")":"")]);return false};
+  window.onunhandledrejection=function(ev){s("error",["Unhandled: "+(ev.reason?(ev.reason.message||ev.reason):"unknown")])};
+})();
+</script>`;
+
+  // Insert console capture early in head or body
+  if (html.includes('<head>')) {
+    html = html.replace('<head>', '<head>\n' + consoleCapture);
+  } else if (html.includes('<body>')) {
+    html = html.replace('<body>', '<body>\n' + consoleCapture);
+  } else {
+    // Prepend to beginning
+    html = consoleCapture + '\n' + html;
+  }
+
+  return html;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PROJECT TYPE DETECTION
+// ═══════════════════════════════════════════════════════════════════
+
+function isReactProject(files: ProjectFile[]): boolean {
+  // Check for React-specific files
+  const hasAppTsx = files.some(f => f.path.endsWith('App.tsx') || f.path.endsWith('App.jsx'));
+  const hasMainTsx = files.some(f => f.path.endsWith('main.tsx') || f.path.endsWith('main.jsx'));
+  const hasReactImport = files.some(f =>
+    (f.path.endsWith('.tsx') || f.path.endsWith('.jsx') || f.path.endsWith('.ts') || f.path.endsWith('.js')) &&
+    (f.content.includes("from 'react'") || f.content.includes('from "react"') || f.content.includes('React.'))
+  );
+
+  return hasAppTsx || hasMainTsx || hasReactImport;
+}
+
+function isPlainHTMLProject(files: ProjectFile[]): boolean {
+  const hasIndexHtml = files.some(f => f.path === 'index.html' || f.path.endsWith('/index.html'));
+  const hasJsFiles = files.some(f => f.path.endsWith('.js'));
+  const hasCssFiles = files.some(f => f.path.endsWith('.css'));
+
+  // Check if it looks like plain HTML (no JSX, no React imports)
+  const jsFiles = files.filter(f => f.path.endsWith('.js'));
+  const isPlainJS = jsFiles.every(f =>
+    !f.content.includes("from 'react'") &&
+    !f.content.includes('from "react"') &&
+    !f.content.includes('React.createElement') &&
+    !f.content.includes('jsx') &&
+    !f.content.includes('JSX')
+  );
+
+  return hasIndexHtml && (hasJsFiles || hasCssFiles) && isPlainJS;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // MAIN RENDER FUNCTION
 // ═══════════════════════════════════════════════════════════════════
 
 export function renderPreviewHTML(files: ProjectFile[]): string {
   try {
+    // Detect project type and use appropriate renderer
+    if (isPlainHTMLProject(files) && !isReactProject(files)) {
+      console.log('[Preview] Detected plain HTML project, using direct renderer');
+      const plainHTML = renderPlainHTMLProject(files);
+      if (plainHTML) {
+        return plainHTML;
+      }
+      // Fall through to React renderer if plain HTML rendering fails
+    }
+
+    // React/TSX project renderer
     const registry = buildRegistry(files);
     const executionOrder = topologicalSort(registry);
     const diagnosticIssues = runDiagnosticScan(registry);
