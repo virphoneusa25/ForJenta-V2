@@ -25,10 +25,8 @@ Clone the repository https://github.com/virphoneusa25/ForJenta-9bg3j5.git and:
    - Plain HTML projects (like todo-app) now render correctly instead of showing "No App.tsx found" error
 
 2. **Fixed Login/Authentication Issues**
-   - Removed non-functional Google OAuth button (Supabase provider not enabled)
-   - Login now uses email/password only
-   - Signup uses email OTP verification flow
-   - Both pages work correctly without errors
+   - Initially removed non-functional Google OAuth (Supabase provider not enabled)
+   - Now replaced with **Emergent-managed Google Auth** which works!
 
 3. **Environment Configuration**
    - Updated `vite.config.ts` to use port 3000 and allow preview hosts
@@ -37,6 +35,34 @@ Clone the repository https://github.com/virphoneusa25/ForJenta-9bg3j5.git and:
 
 4. **Dependencies**
    - Installed missing `@monaco-editor/react` package
+
+### New Features
+
+#### Google OAuth via Emergent Auth
+- **Login page**: "Continue with Google" button using Emergent Auth
+- **Signup page**: "Continue with Google" button using Emergent Auth
+- **AuthCallback component**: Handles session_id exchange from OAuth callback
+- Backend endpoints:
+  - `POST /api/auth/session` - Exchange Emergent session_id for app session
+  - `GET /api/auth/me` - Get current authenticated user
+  - `POST /api/auth/logout` - Logout and clear session
+
+#### GitHub Integration
+- **Connect GitHub account** via OAuth
+- **List repositories** - View all user's public and private repos
+- **Create repositories** - Create new repos from ForJenta
+- **Branch management** - List and switch branches
+- **Push files** - Push project files to GitHub repos
+- Backend endpoints:
+  - `GET /api/github/connect` - Get GitHub authorization URL
+  - `POST /api/github/callback` - Exchange code for token
+  - `DELETE /api/github/disconnect` - Disconnect GitHub account
+  - `GET /api/github/status` - Check connection status
+  - `GET /api/github/repos` - List repositories
+  - `POST /api/github/repos` - Create new repository
+  - `GET /api/github/repos/{owner}/{repo}/branches` - List branches
+  - `GET /api/github/repos/{owner}/{repo}/contents` - Get file contents
+  - `POST /api/github/repos/{owner}/{repo}/push` - Push files to repo
 
 ### UX Enhancements
 1. **Project Type Indicator Badge** (Added)
