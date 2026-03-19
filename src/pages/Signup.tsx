@@ -278,7 +278,8 @@ export default function Signup() {
 
         {step === 'email' && (
           <>
-            {/* Google OAuth */}
+            {/* Google OAuth - Temporarily disabled until provider is enabled */}
+            {/*
             <button
               onClick={handleGoogleAuth}
               className="flex w-full items-center justify-center gap-3 rounded-xl border border-white/10 bg-white/5 py-3 text-sm font-medium text-white transition-all hover:bg-white/10"
@@ -297,6 +298,7 @@ export default function Signup() {
               <span className="text-xs text-gray-600">or</span>
               <div className="h-px flex-1 bg-white/10" />
             </div>
+            */}
 
             <form onSubmit={handleSendOtp} className="flex flex-col gap-4">
               <div>
