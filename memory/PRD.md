@@ -24,12 +24,18 @@ Clone the repository https://github.com/virphoneusa25/ForJenta-9bg3j5.git and:
      - Injects console capture for preview console integration
    - Plain HTML projects (like todo-app) now render correctly instead of showing "No App.tsx found" error
 
-2. **Environment Configuration**
+2. **Fixed Login/Authentication Issues**
+   - Removed non-functional Google OAuth button (Supabase provider not enabled)
+   - Login now uses email/password only
+   - Signup uses email OTP verification flow
+   - Both pages work correctly without errors
+
+3. **Environment Configuration**
    - Updated `vite.config.ts` to use port 3000 and allow preview hosts
    - Configured `allowedHosts` for Emergent preview environment
    - Updated supervisor to run Vite instead of old React setup
 
-3. **Dependencies**
+4. **Dependencies**
    - Installed missing `@monaco-editor/react` package
 
 ### UX Enhancements
