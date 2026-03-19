@@ -168,11 +168,11 @@ export default function Workspace() {
           <div className="w-9" />
         </div>
 
-        {/* Content split view */}
-        <div className="flex flex-1 overflow-hidden">
+        {/* Content split view - FIXED: Added overflow-y-auto for mobile scrolling */}
+        <div className="flex flex-1 overflow-hidden lg:overflow-visible">
           {/* Left panel - Projects list */}
           <div className={cn(
-            "flex flex-col overflow-hidden border-r border-white/5",
+            "flex flex-col overflow-y-auto border-r border-white/5",
             selectedProjectId && window.innerWidth >= 1024 ? "w-1/2 xl:w-3/5" : "flex-1"
           )}>
             {/* Hero composer */}
@@ -182,7 +182,7 @@ export default function Workspace() {
 
             {/* Projects section */}
             {isAuthenticated && displayProjects.length > 0 && (
-              <div className="flex-1 overflow-y-auto px-4 lg:px-8 pb-8">
+              <div className="flex-1 px-4 lg:px-8 pb-8">
                 {/* Section header */}
                 <div className="flex items-center justify-between mb-4 sticky top-0 bg-black py-2 z-10">
                   <div className="flex items-center gap-2">

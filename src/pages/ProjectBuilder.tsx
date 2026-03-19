@@ -269,6 +269,14 @@ function ProjectBuilderInner() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  // ── Load persistent project when component mounts ──
+  useEffect(() => {
+    if (id && id !== 'new') {
+      console.log('[ProjectBuilder] Loading persistent project:', id);
+      loadProject(id);
+    }
+  }, [id, loadProject]);
+
   // Auto-preview: debounced refresh when files change
   const autoPreviewTimer = useRef<ReturnType<typeof setTimeout>>();
   const lastFileHash = useRef('');
@@ -381,13 +389,69 @@ function ProjectBuilderInner() {
 
     const existingPaths = project.files.map((f) => f.path);
 
-    pipeline.generate(
-      autoGen.prompt,
-      [autoGen.category || 'Web'],
-      undefined,
-      existingPaths,
-      applyFiles
-    ).then((result) => {
+    // Use persistent generation flow
+    const runAutoGenerate = async () => {
+      const persistentGen = usePersistentProjectStore.getState();
+      const currentProject = persistentGen.currentProject;
+      
+      if (currentProject) {
+        // Create continuation record
+        const continuation = await persistentGen.continueProject(autoGen.prompt, false);
+        
+        if (continuation) {
+          const { prompt: promptRecord, run } = continuation;
+          
+          const result = await pipeline.generate(
+            autoGen.prompt,
+            [autoGen.category || 'Web'],
+            undefined,
+            existingPaths,
+            applyFiles
+          );
+          
+          if (result?.success && result.files) {
+            // Save files with persistence
+            await persistentGen.saveFiles(
+              result.files.map(f => ({
+                path: f.path,
+                content: f.content,
+                language: f.language || 'text',
+              })),
+              run.run_id,
+              promptRecord.prompt_id,
+              `Initial generation: ${autoGen.prompt.slice(0, 50)}`
+            );
+            
+            await persistentGen.updateGenerationRun(run.run_id, {
+              status: 'complete',
+              files_created: result.files.map(f => f.path),
+              files_updated: [],
+            });
+            
+            addTerminalLine(`> Build complete: ${result.files?.length || 0} file(s) saved`, 'success');
+            toast({ title: 'App generated!', description: `${result.files?.length || 0} files created and saved` });
+            setShowPreview(true);
+            setPreviewKey((k) => k + 1);
+          } else {
+            await persistentGen.updateGenerationRun(run.run_id, {
+              status: 'failed',
+              error_message: result?.error || 'Unknown error',
+            });
+            addTerminalLine(`> Build failed: ${result?.error || 'Unknown'}`, 'error');
+          }
+          return;
+        }
+      }
+      
+      // Fallback to non-persistent generation
+      const result = await pipeline.generate(
+        autoGen.prompt,
+        [autoGen.category || 'Web'],
+        undefined,
+        existingPaths,
+        applyFiles
+      );
+      
       if (result?.success) {
         addTerminalLine(`> Build complete: ${result.files?.length || 0} file(s)`, 'success');
         toast({ title: 'App generated!', description: `${result.files?.length || 0} files created` });
@@ -396,7 +460,9 @@ function ProjectBuilderInner() {
       } else {
         addTerminalLine(`> Build failed: ${result?.error || 'Unknown'}`, 'error');
       }
-    });
+    };
+    
+    runAutoGenerate();
   }, [id, project?.id, applyFiles, addTerminalLine, setShowGenPanel, pipeline, toast, setShowPreview, setPreviewKey]);
 
   // ── Handle file chip click → open in editor ──
@@ -423,6 +489,106 @@ function ProjectBuilderInner() {
 
     addTerminalLine(`> Request: "${prompt.substring(0, 60)}..."`, 'command');
 
+    // Use persistent generation to save projects properly
+    const persistentGen = usePersistentProjectStore.getState();
+    const currentProject = persistentGen.currentProject;
+    
+    if (currentProject) {
+      // Use persistent generation flow
+      const continueProject = persistentGen.continueProject;
+      const saveFiles = persistentGen.saveFiles;
+      const updateGenerationRun = persistentGen.updateGenerationRun;
+      
+      // 1. Create continuation record
+      const continuation = await continueProject(prompt, false);
+      
+      if (continuation) {
+        const { prompt: promptRecord, run, classification } = continuation;
+        
+        // 2. Build context
+        const existingPaths = project?.files.map((f) => f.path) || [];
+        let context = '';
+        
+        if (!classification.is_full_rebuild && project?.files.length) {
+          const fileList = project.files
+            .map(f => `- ${f.path}`)
+            .join('\n');
+          
+          context = `
+=== EXISTING PROJECT CONTEXT ===
+Project: ${project.name}
+Files:
+${fileList}
+
+=== CONTINUATION INSTRUCTIONS ===
+Prompt Type: ${classification.prompt_type}
+IMPORTANT: Only modify files that need changes. Preserve existing files.
+
+USER REQUEST:
+${prompt}
+`.trim();
+        } else {
+          context = project
+            ? project.files.map((f) => `--- ${f.path} ---\n${f.content}`).join('\n\n')
+            : '';
+        }
+        
+        // 3. Run generation
+        const result = await pipeline.generate(
+          prompt,
+          project?.categories || ['Web'],
+          context,
+          existingPaths,
+          applyFiles
+        );
+
+        if ((result as any)?.insufficientCredits) {
+          setInsufficientCreditsModal((result as any).creditCheck);
+          addTerminalLine('> Insufficient credits', 'error');
+          return;
+        }
+
+        if (result?.success && result.files) {
+          // 4. Save files with persistence
+          await saveFiles(
+            result.files.map(f => ({
+              path: f.path,
+              content: f.content,
+              language: f.language || 'text',
+            })),
+            run.run_id,
+            promptRecord.prompt_id,
+            `Generated ${result.files.length} files from: ${prompt.slice(0, 50)}`
+          );
+          
+          // 5. Update run status
+          await updateGenerationRun(run.run_id, {
+            status: 'complete',
+            files_created: result.files.filter(f => !existingPaths.includes(f.path)).map(f => f.path),
+            files_updated: result.files.filter(f => existingPaths.includes(f.path)).map(f => f.path),
+          });
+          
+          addTerminalLine(`> Build complete: ${result.files?.length || 0} file(s) saved`, 'success');
+          toast({ title: 'Build complete!', description: `${result.files?.length || 0} files generated and saved` });
+          setShowPreview(true);
+          setPreviewKey((k) => k + 1);
+          credits.refresh();
+        } else {
+          // Update run as failed
+          await updateGenerationRun(run.run_id, {
+            status: 'failed',
+            error_message: result?.error || 'Unknown error',
+          });
+          
+          addTerminalLine(`> Build failed: ${result?.error || 'Unknown'}`, 'error');
+          credits.refresh();
+        }
+        
+        return;
+      }
+    }
+    
+    // Fallback: No persistent project, use direct pipeline
     const context = project
       ? project.files.map((f) => `--- ${f.path} ---\n${f.content}`).join('\n\n')
       : '';

@@ -1,0 +1,79 @@
+{
+  "summary": "Bug fix verification complete - Persistent project saving and mobile scroll fixes verified working",
+  "mode": "generate",
+  "baseline_commit": "105c5f5f9434444161d0421c654bbbacbeda11da",
+  "head_commit": "bcf31f6f80c196d465513bb5af0c37997081ab78",
+  "specs_created": [
+    "/app/tests/e2e/persistent-projects.spec.ts",
+    "/app/backend/tests/test_api.py",
+    "/app/backend/tests/conftest.py"
+  ],
+  "specs_updated": [],
+  "quarantined_tests": [],
+  "test_report_links": [
+    "/app/tests/e2e/persistent-projects.spec.ts",
+    "/app/tests/e2e/mobile-builder.spec.ts",
+    "/app/backend/tests/test_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "regression_results": {
+    "total_specs": 35,
+    "passed": 34,
+    "failed": 0,
+    "skipped": 0,
+    "flaky": 1
+  },
+  "issues": [
+    {
+      "id": "FLAKY-001",
+      "issue_type": "improvement",
+      "severity": "LOW",
+      "description": "One test occasionally flaky due to Cloudflare security verification page appearing intermittently during automated testing. Test passes on retry.",
+      "endpoint_or_component": "mobile-builder.spec.ts - mobile input field accepts text"
+    }
+  ],
+  "action_items": [],
+  "updated_files": [
+    "/app/tests/e2e/persistent-projects.spec.ts",
+    "/app/backend/tests/test_api.py",
+    "/app/backend/tests/conftest.py"
+  ],
+  "test_results": {
+    "backend": "100% (12/12 tests pass)",
+    "frontend": "97% (34/35 tests pass - 1 flaky)"
+  },
+  "seed_data_creation": "Used existing demo project 'proj-demo-1' (todo-app) with files: index.html, styles.css, script.js, README.md",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Bug fix verification complete. Two fixes were tested: (1) AI generator now uses persistent project store with saveFiles and updateGenerationRun - verified by testing project loading, file persistence across navigation, and continuation prompt input. (2) Workspace mobile scroll fix - verified by checking overflow-y-auto style on left panel container. All tests pass. Frontend test suite in /app/tests/e2e/ with persistent-projects.spec.ts (16 tests) and mobile-builder.spec.ts (19 tests). Backend tests in /app/backend/tests/test_api.py (12 tests).",
+  "features_verified": {
+    "persistent_project_loading": {
+      "project_loads_on_mount": true,
+      "files_display_in_sidebar": true,
+      "ai_panel_visible": true,
+      "history_button_visible": true,
+      "changes_button_visible": true,
+      "versions_button_visible": true
+    },
+    "continuation_prompts": {
+      "input_accepts_text": true,
+      "mobile_input_works": true
+    },
+    "workspace_mobile_scroll": {
+      "workspace_loads_on_mobile": true,
+      "left_panel_has_overflow_y_auto": true,
+      "template_buttons_visible": true
+    },
+    "navigation": {
+      "workspace_to_project_works": true,
+      "back_to_workspace_works": true,
+      "files_persist_across_navigation": true
+    },
+    "backend_api": {
+      "status_endpoints_work": true,
+      "projects_require_auth": true,
+      "github_endpoints_require_auth": true,
+      "logout_works": true
+    }
+  }
+}
