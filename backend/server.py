@@ -12,6 +12,13 @@ import uuid
 from datetime import datetime, timezone, timedelta
 import httpx
 
+from project_service import ProjectService
+from models import (
+    Project, ProjectPrompt, GenerationRun, ProjectFile, FileVersion,
+    ProjectActivity, CreateProjectRequest, ContinueProjectRequest,
+    ProjectSummary, ProjectDetailResponse, PromptType
+)
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
@@ -20,13 +27,16 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
+# Initialize project service
+project_service = ProjectService(db)
+
 # GitHub OAuth Configuration
 GITHUB_CLIENT_ID = os.environ.get('GITHUB_CLIENT_ID', '')
 GITHUB_CLIENT_SECRET = os.environ.get('GITHUB_CLIENT_SECRET', '')
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://jenta-preview.preview.emergentagent.com')
 
 # Create the main app
-app = FastAPI(title="ForJenta API", version="2.0.0")
+app = FastAPI(title="ForJenta API", version="3.0.0")
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -708,6 +718,390 @@ async def push_files(
     except httpx.RequestError as e:
         logger.error(f"GitHub API error: {e}")
         raise HTTPException(status_code=502, detail="GitHub API unavailable")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# PROJECT ROUTES - Persistent AI Builder
+# ═══════════════════════════════════════════════════════════════════
+
+class CreateProjectBody(BaseModel):
+    name: str
+    prompt: str
+    description: Optional[str] = None
+
+class ContinueProjectBody(BaseModel):
+    prompt: str
+    force_rebuild: bool = False
+
+class SaveFilesBody(BaseModel):
+    files: List[Dict[str, str]]  # [{"path": "...", "content": "...", "language": "..."}]
+    run_id: str
+    prompt_id: str
+    change_reason: Optional[str] = None
+
+class UpdateArchitectureBody(BaseModel):
+    architecture_summary: Optional[str] = None
+    tech_stack: Optional[List[str]] = None
+    main_features: Optional[List[str]] = None
+
+
+@api_router.post("/projects")
+async def create_project(body: CreateProjectBody, user: User = Depends(get_current_user)):
+    """Create a new project from initial prompt."""
+    project = await project_service.create_project(
+        user_id=user.user_id,
+        name=body.name,
+        initial_prompt=body.prompt,
+        description=body.description
+    )
+    
+    return {
+        "success": True,
+        "project": project.model_dump()
+    }
+
+
+@api_router.get("/projects")
+async def list_projects(user: User = Depends(get_current_user)):
+    """List all projects for the current user."""
+    projects = await project_service.get_user_projects(user.user_id)
+    
+    return {
+        "projects": [
+            {
+                "project_id": p.project_id,
+                "name": p.name,
+                "description": p.description,
+                "status": p.status,
+                "current_file_count": p.current_file_count,
+                "total_prompts": p.total_prompts,
+                "tech_stack": p.tech_stack,
+                "main_features": p.main_features,
+                "created_at": p.created_at.isoformat() if isinstance(p.created_at, datetime) else p.created_at,
+                "updated_at": p.updated_at.isoformat() if isinstance(p.updated_at, datetime) else p.updated_at,
+                "last_generation_at": p.last_generation_at.isoformat() if p.last_generation_at and isinstance(p.last_generation_at, datetime) else p.last_generation_at
+            }
+            for p in projects
+        ]
+    }
+
+
+@api_router.get("/projects/{project_id}")
+async def get_project(project_id: str, user: User = Depends(get_current_user)):
+    """Get full project details including files and history."""
+    project = await project_service.get_project(project_id, user.user_id)
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    files = await project_service.get_project_files(project_id)
+    prompts = await project_service.get_prompt_history(project_id)
+    activity = await project_service.get_activity_timeline(project_id, limit=20)
+    
+    return {
+        "project": project.model_dump(),
+        "files": [f.model_dump() for f in files],
+        "prompts": [p.model_dump() for p in prompts],
+        "activity": [a.model_dump() for a in activity]
+    }
+
+
+@api_router.get("/projects/{project_id}/context")
+async def get_project_context(project_id: str, user: User = Depends(get_current_user)):
+    """
+    Load full project context for continuation.
+    This is what the generator needs before processing a new prompt.
+    """
+    context = await project_service.load_project_context(project_id, user.user_id)
+    
+    if not context:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    return context
+
+
+@api_router.post("/projects/{project_id}/prompts")
+async def add_prompt(
+    project_id: str,
+    body: ContinueProjectBody,
+    user: User = Depends(get_current_user)
+):
+    """
+    Add a new prompt to continue building the project.
+    This classifies the prompt and prepares for generation.
+    """
+    project = await project_service.get_project(project_id, user.user_id)
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Get current files for classification
+    files = await project_service.get_project_files(project_id)
+    file_paths = [f.path for f in files]
+    
+    # Classify the prompt
+    prompt_type, is_full_rebuild, targeted_files = project_service.classify_prompt(
+        body.prompt,
+        has_existing_files=len(files) > 0,
+        existing_file_paths=file_paths
+    )
+    
+    # Override if force_rebuild is set
+    if body.force_rebuild:
+        prompt_type = "full_rebuild"
+        is_full_rebuild = True
+    
+    # Get sequence number
+    last_prompt = await project_service.get_last_prompt(project_id)
+    sequence_number = (last_prompt.sequence_number + 1) if last_prompt else 1
+    
+    # Create prompt record
+    prompt = await project_service.add_prompt(
+        project_id=project_id,
+        user_id=user.user_id,
+        content=body.prompt,
+        prompt_type=prompt_type,
+        is_continuation=not is_full_rebuild,
+        sequence_number=sequence_number,
+        targeted_files=targeted_files
+    )
+    
+    # Create generation run
+    run = await project_service.create_generation_run(
+        project_id=project_id,
+        user_id=user.user_id,
+        prompt_id=prompt.prompt_id,
+        prompt_type=prompt_type,
+        is_full_rebuild=is_full_rebuild
+    )
+    
+    # Log activity
+    await project_service.log_activity(
+        project_id=project_id,
+        user_id=user.user_id,
+        activity_type="prompt",
+        title=f"{'Full Rebuild' if is_full_rebuild else 'Continue Building'}: {body.prompt[:50]}...",
+        prompt_id=prompt.prompt_id,
+        run_id=run.run_id
+    )
+    
+    return {
+        "success": True,
+        "prompt": prompt.model_dump(),
+        "run": run.model_dump(),
+        "classification": {
+            "prompt_type": prompt_type,
+            "is_full_rebuild": is_full_rebuild,
+            "is_continuation": not is_full_rebuild,
+            "targeted_files": targeted_files
+        },
+        "context": {
+            "existing_file_count": len(files),
+            "existing_file_paths": file_paths
+        }
+    }
+
+
+@api_router.get("/projects/{project_id}/prompts")
+async def get_prompt_history(project_id: str, user: User = Depends(get_current_user)):
+    """Get prompt/conversation history for a project."""
+    project = await project_service.get_project(project_id, user.user_id)
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    prompts = await project_service.get_prompt_history(project_id)
+    
+    return {
+        "prompts": [p.model_dump() for p in prompts]
+    }
+
+
+@api_router.post("/projects/{project_id}/files")
+async def save_project_files(
+    project_id: str,
+    body: SaveFilesBody,
+    user: User = Depends(get_current_user)
+):
+    """Save or update project files with version history."""
+    project = await project_service.get_project(project_id, user.user_id)
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    results = {
+        "created": [],
+        "updated": [],
+        "errors": []
+    }
+    
+    for file_data in body.files:
+        try:
+            file, change_type = await project_service.save_file(
+                project_id=project_id,
+                path=file_data["path"],
+                content=file_data["content"],
+                language=file_data.get("language", "text"),
+                run_id=body.run_id,
+                prompt_id=body.prompt_id,
+                change_reason=body.change_reason
+            )
+            
+            if change_type == "created":
+                results["created"].append(file_data["path"])
+            else:
+                results["updated"].append(file_data["path"])
+                
+        except Exception as e:
+            logger.error(f"Error saving file {file_data['path']}: {e}")
+            results["errors"].append({"path": file_data["path"], "error": str(e)})
+    
+    return {
+        "success": len(results["errors"]) == 0,
+        "results": results
+    }
+
+
+@api_router.get("/projects/{project_id}/files")
+async def get_project_files(project_id: str, user: User = Depends(get_current_user)):
+    """Get all current files for a project."""
+    project = await project_service.get_project(project_id, user.user_id)
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    files = await project_service.get_project_files(project_id)
+    
+    return {
+        "files": [
+            {
+                "file_id": f.file_id,
+                "path": f.path,
+                "content": f.content,
+                "language": f.language,
+                "size_bytes": f.size_bytes,
+                "line_count": f.line_count,
+                "version_number": f.version_number,
+                "updated_at": f.updated_at.isoformat() if isinstance(f.updated_at, datetime) else f.updated_at
+            }
+            for f in files
+        ]
+    }
+
+
+@api_router.get("/projects/{project_id}/files/{path:path}/versions")
+async def get_file_versions(
+    project_id: str,
+    path: str,
+    user: User = Depends(get_current_user)
+):
+    """Get version history for a specific file."""
+    project = await project_service.get_project(project_id, user.user_id)
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    versions = await project_service.get_file_versions(project_id, path)
+    
+    return {
+        "path": path,
+        "versions": [v.model_dump() for v in versions]
+    }
+
+
+@api_router.get("/projects/{project_id}/generations")
+async def get_generation_history(project_id: str, user: User = Depends(get_current_user)):
+    """Get generation run history for a project."""
+    project = await project_service.get_project(project_id, user.user_id)
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    generations = await project_service.get_generation_history(project_id)
+    
+    return {
+        "generations": [g.model_dump() for g in generations]
+    }
+
+
+@api_router.patch("/projects/{project_id}/generations/{run_id}")
+async def update_generation_run(
+    project_id: str,
+    run_id: str,
+    body: Dict[str, Any],
+    user: User = Depends(get_current_user)
+):
+    """Update a generation run with results."""
+    project = await project_service.get_project(project_id, user.user_id)
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    await project_service.update_generation_run(run_id, **body)
+    
+    # Update prompt result if provided
+    if body.get("prompt_id") and body.get("change_summary"):
+        await project_service.update_prompt_result(
+            prompt_id=body["prompt_id"],
+            run_id=run_id,
+            change_summary=body["change_summary"],
+            files_created=len(body.get("files_created", [])),
+            files_updated=len(body.get("files_updated", [])),
+            files_deleted=len(body.get("files_deleted", []))
+        )
+    
+    return {"success": True}
+
+
+@api_router.patch("/projects/{project_id}/architecture")
+async def update_project_architecture(
+    project_id: str,
+    body: UpdateArchitectureBody,
+    user: User = Depends(get_current_user)
+):
+    """Update project architecture summary and metadata."""
+    updates = {}
+    if body.architecture_summary is not None:
+        updates["architecture_summary"] = body.architecture_summary
+    if body.tech_stack is not None:
+        updates["tech_stack"] = body.tech_stack
+    if body.main_features is not None:
+        updates["main_features"] = body.main_features
+    
+    if updates:
+        project = await project_service.update_project(project_id, user.user_id, **updates)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return {"success": True, "project": project.model_dump()}
+    
+    return {"success": True}
+
+
+@api_router.get("/projects/{project_id}/activity")
+async def get_project_activity(project_id: str, user: User = Depends(get_current_user)):
+    """Get activity timeline for a project."""
+    project = await project_service.get_project(project_id, user.user_id)
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    activity = await project_service.get_activity_timeline(project_id)
+    
+    return {
+        "activity": [a.model_dump() for a in activity]
+    }
+
+
+@api_router.delete("/projects/{project_id}")
+async def delete_project(project_id: str, user: User = Depends(get_current_user)):
+    """Soft delete a project."""
+    success = await project_service.delete_project(project_id, user.user_id)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    return {"success": True}
+
 
 # Include the router in the main app
 app.include_router(api_router)

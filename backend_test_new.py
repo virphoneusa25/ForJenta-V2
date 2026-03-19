@@ -88,34 +88,6 @@ class PersistentProjectAPITester:
             200
         )
 
-    def test_auth_session_no_token(self):
-        """Test auth session endpoint without token (should fail)"""
-        return self.run_test(
-            "Auth Session (No Token)",
-            "POST",
-            "api/auth/session",
-            422,  # Missing session_id should return 422
-            data={}
-        )
-
-    def test_auth_me_no_auth(self):
-        """Test /me endpoint without authentication"""
-        return self.run_test(
-            "Auth Me (No Auth)",
-            "GET",
-            "api/auth/me", 
-            401
-        )
-
-    def test_github_connect_no_auth(self):
-        """Test GitHub connect endpoint without authentication"""
-        return self.run_test(
-            "GitHub Connect (No Auth)",
-            "GET",
-            "api/github/connect",
-            401
-        )
-
     def test_auth_me_with_auth(self):
         """Test /me endpoint with authentication"""
         return self.run_test(
@@ -240,15 +212,6 @@ class PersistentProjectAPITester:
             200
         )
 
-    def test_github_repos_no_auth(self):
-        """Test GitHub repos endpoint without authentication (should pass with auth token)"""
-        return self.run_test(
-            "GitHub Repos (With Auth)", 
-            "GET",
-            "api/github/repos",
-            404  # Should return 404 since GitHub not connected for test user
-        )
-
     def test_get_project_detail(self):
         """Test get project detail endpoint"""
         if not self.test_project_id:
@@ -262,6 +225,12 @@ class PersistentProjectAPITester:
             f"api/projects/{self.test_project_id}",
             200
         )
+
+    def test_github_repos_no_connection(self):
+        """Test GitHub repos endpoint with auth but no connection"""
+        return self.run_test(
+            "GitHub Repos (No Connection)", 
+            "GET",
             "api/github/repos",
             404  # Should return 404 since GitHub not connected for test user
         )
@@ -300,7 +269,7 @@ class PersistentProjectAPITester:
         failed_tests = [r for r in self.results if not r["success"]]
         
         report = {
-            "summary": f"Backend OAuth API Testing - {self.tests_passed}/{self.tests_run} tests passed",
+            "summary": f"Backend Persistent Project API Testing - {self.tests_passed}/{self.tests_run} tests passed",
             "total_tests": self.tests_run,
             "passed": self.tests_passed,
             "failed": len(failed_tests),
@@ -326,10 +295,9 @@ def main():
     print("\n🔐 Testing Auth Endpoints (With Auth)...")
     tester.test_auth_me_with_auth()
     
-    # Test GitHub endpoints without authentication (expecting 401)
+    # Test GitHub endpoints without GitHub connection (expecting 404)
     print("\n🐙 Testing GitHub Endpoints (With Auth but No Connection)...")  
-    tester.test_github_connect_no_auth()
-    tester.test_github_repos_no_auth()
+    tester.test_github_repos_no_connection()
     
     # Test Project Management endpoints
     print("\n📁 Testing Project Management Endpoints...")

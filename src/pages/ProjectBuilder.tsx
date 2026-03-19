@@ -30,16 +30,21 @@ import {
   Smartphone,
   Tablet,
   Monitor,
+  History,
 } from 'lucide-react';
 import { useProjectStore } from '@/stores/projectStore';
+import { usePersistentProjectStore } from '@/stores/persistentProjectStore';
 import { useToast } from '@/hooks/use-toast';
 import { useGenerationPipeline } from '@/hooks/useGenerationPipeline';
+import { usePersistentGeneration } from '@/hooks/usePersistentGeneration';
 import { debugAndRepair } from '@/lib/api';
 import GenerationPanel from '@/components/features/builder/GenerationPanel';
 import SafePreviewShell from '@/components/features/builder/SafePreviewShell';
 import ErrorBoundary from '@/components/features/ErrorBoundary';
 import MonacoEditor from '@/components/features/builder/MonacoEditor';
 import PreviewConsole from '@/components/features/builder/PreviewConsole';
+import PromptHistory from '@/components/features/builder/PromptHistory';
+import ContinuationPromptComposer from '@/components/features/builder/ContinuationPromptComposer';
 import type { ProjectFile } from '@/types';
 import { renderPreviewHTML, buildPlaceholderHTML } from '@/lib/previewRenderer';
 import CreditDisplay from '@/components/features/credits/CreditDisplay';
