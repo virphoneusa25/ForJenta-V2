@@ -1030,6 +1030,7 @@ ${prompt}
               onClose={() => setShowGenPanel(false)}
               onDebug={handleDebugRepair}
               onFileClick={handleFileChipClick}
+              promptHistory={promptHistory}
             />
           </div>
         )}
@@ -1307,6 +1308,7 @@ ${prompt}
             onClose={() => setShowGenPanel(false)}
             onDebug={handleDebugRepair}
             onFileClick={handleFileChipClick}
+            promptHistory={promptHistory}
           />
         </div>
       )}

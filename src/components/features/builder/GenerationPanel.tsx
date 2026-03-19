@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import {
   Sparkles,
   Send,
@@ -65,6 +65,13 @@ interface GenerationPanelProps {
   onClose: () => void;
   onDebug: () => void;
   onFileClick?: (filePath: string) => void;
+  // Prompt history for conversation continuity
+  promptHistory?: Array<{
+    prompt_id: string;
+    content: string;
+    prompt_type: string;
+    created_at: string;
+  }>;
 }
 
 // ─── Typing animation component ────────────────────────────────────
@@ -653,6 +660,7 @@ export default function GenerationPanel({
   onClose,
   onDebug,
   onFileClick,
+  promptHistory = [],
 }: GenerationPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -661,6 +669,52 @@ export default function GenerationPanel({
 
   // Track which messages have already been animated
   const animatedMsgIds = useRef(new Set<string>());
+  
+  // Combine messages with prompt history for display
+  // Convert prompt history to BuildMessage format and merge
+  const allMessages = React.useMemo(() => {
+    // Convert prompt history to message format
+    const historyMessages: BuildMessage[] = promptHistory.map((p) => ({
+      id: `history-${p.prompt_id}`,
+      type: 'user_prompt' as const,
+      timestamp: p.created_at,
+      data: {
+        prompt: p.content,
+        categories: [p.prompt_type],
+      },
+    }));
+    
+    // Merge and dedupe (avoid showing same prompt twice)
+    const seenPrompts = new Set<string>();
+    const combined: BuildMessage[] = [];
+    
+    // Add history first (older)
+    for (const msg of historyMessages) {
+      const key = msg.data?.prompt?.trim();
+      if (key && !seenPrompts.has(key)) {
+        seenPrompts.add(key);
+        combined.push(msg);
+      }
+    }
+    
+    // Add current messages
+    for (const msg of messages) {
+      if (msg.type === 'user_prompt') {
+        const key = msg.data?.prompt?.trim();
+        if (key && seenPrompts.has(key)) continue; // Skip duplicate
+        if (key) seenPrompts.add(key);
+      }
+      combined.push(msg);
+    }
+    
+    // Sort by timestamp
+    return combined.sort((a, b) => 
+      new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime()
+    );
+  }, [messages, promptHistory]);
+  
+  // Determine if we have any conversation history
+  const hasHistory = allMessages.length > 0 || promptHistory.length > 0;
 
   // Always auto-scroll to the bottom when content changes
   useEffect(() => {
@@ -708,18 +762,18 @@ export default function GenerationPanel({
 
   // Find the last complete assistant_update for quick action placement
   const lastCompleteUpdateId = (() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].type === 'assistant_update' && messages[i].data?.status === 'complete') {
-        return messages[i].id;
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      if (allMessages[i].type === 'assistant_update' && allMessages[i].data?.status === 'complete') {
+        return allMessages[i].id;
       }
     }
     return null;
   })();
 
   // Split messages around file_generation marker
-  const fileGenIdx = messages.findIndex((m) => m.type === 'file_generation');
-  const beforeFileGen = fileGenIdx >= 0 ? messages.slice(0, fileGenIdx) : messages;
-  const afterFileGen = fileGenIdx >= 0 ? messages.slice(fileGenIdx + 1) : [];
+  const fileGenIdx = allMessages.findIndex((m) => m.type === 'file_generation');
+  const beforeFileGen = fileGenIdx >= 0 ? allMessages.slice(0, fileGenIdx) : allMessages;
+  const afterFileGen = fileGenIdx >= 0 ? allMessages.slice(fileGenIdx + 1) : [];
 
   // Determine which messages should be animated
   const shouldAnimateMsg = (msg: BuildMessage): boolean => {
@@ -778,8 +832,8 @@ export default function GenerationPanel({
             <WorkingIndicator />
           )}
 
-          {/* Idle state */}
-          {state === 'idle' && messages.length === 0 && (
+          {/* Idle state - only show if NO history and NO messages */}
+          {state === 'idle' && !hasHistory && (
             <div className="flex flex-col items-center py-16 text-center">
               <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20">
                 <Sparkles className="size-6 text-violet-400" />
