@@ -144,23 +144,33 @@ System automatically classifies prompts as:
 ### P0 (Critical)
 - ✅ Live preview working for all project types
 - ✅ Project type indicator badge
+- ✅ Google OAuth via Emergent Auth
+- ✅ GitHub OAuth integration
+- ✅ Persistent project system with history
+- ✅ File diff viewer
+- ✅ Revert to version functionality
+- ✅ GitHub push integration
+- ✅ What Changed panel
 
 ### P1 (High)
 - Add Vue.js project detection and preview support
 - Enhance preview loading states with better visual feedback
 - Improve error recovery in preview
+- Implement auto-save during generation
 
 ### P2 (Medium)
 - Add syntax highlighting for more file types in editor
 - Implement project templates
 - Add export/download all files as zip
+- Add branch selection for GitHub push
 
 ### P3 (Low)
 - Dark/light theme toggle for preview
 - Split view (code + preview side by side)
 - Keyboard shortcuts documentation
+- Pull from GitHub to project
 
 ## Next Tasks
-1. Test with more complex React projects
-2. Add better error messages for unsupported file types
-3. Consider adding Python/Node backend preview support
+1. Implement project templates for quick starts
+2. Add auto-save during generation
+3. Improve error recovery with smart auto-repair
