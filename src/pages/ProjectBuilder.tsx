@@ -1,5 +1,5 @@
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -35,6 +35,7 @@ import {
   Diff,
   FolderGit2,
 } from 'lucide-react';
+import { MobileBuilderView } from '@/components/mobile';
 import { useProjectStore } from '@/stores/projectStore';
 import { usePersistentProjectStore } from '@/stores/persistentProjectStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -249,6 +250,19 @@ function ProjectBuilderInner() {
     oldVersion: number;
     newVersion: number;
   } | null>(null);
+
+  // Mobile detection - responsive breakpoint at 768px (md)
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Auto-preview: debounced refresh when files change
   const autoPreviewTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -615,6 +629,134 @@ function ProjectBuilderInner() {
     );
   }
 
+  // ── Mobile View ──
+  // Render the mobile-first conversation-driven UI for smaller screens
+  if (isMobile) {
+    return (
+      <>
+        <MobileBuilderView
+          projectName={project.name}
+          projectId={project.id}
+          files={project.files}
+          isGenerating={pipeline.isGenerating}
+          generationState={pipeline.state}
+          pipelineMessages={pipeline.messages}
+          fileCards={pipeline.fileCards}
+          chatInput={chatInput}
+          setChatInput={setChatInput}
+          onSend={handleSend}
+          onSave={handleSave}
+          onDownload={handleDownload}
+          onNewFile={handleNewFile}
+          onRefreshPreview={() => setPreviewKey((k) => k + 1)}
+          onDebugRepair={handleDebugRepair}
+          onOpenFile={handleOpenFileFromPanel}
+          onShowVersions={() => setShowVersions(true)}
+          onShowHistory={() => setShowPromptHistory(true)}
+          onShowChanges={() => setShowWhatChanged(true)}
+          onShowGitHub={() => setShowGitHubPush(true)}
+          generatePreviewHTML={generatePreviewHTML}
+          projectType={detectProjectType(project.files)}
+          isSaving={isSaving}
+          hasGitHub={!!githubConnection}
+        />
+        
+        {/* Side panels for mobile (rendered as overlays) */}
+        {showVersions && (
+          <div className="fixed inset-0 z-50 bg-zinc-950">
+            <div className="flex h-12 items-center justify-between border-b border-white/5 px-4">
+              <div className="flex items-center gap-2">
+                <GitBranch className="size-4 text-violet-400" />
+                <span className="text-sm font-medium text-white">History ({project.versions?.length || 0})</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={handleSaveVersion} className="gradient-primary rounded-md px-3 py-1 text-xs font-medium text-white">Save</button>
+                <button onClick={() => setShowVersions(false)} className="rounded p-1 text-gray-500 hover:bg-white/5 hover:text-white"><X className="size-4" /></button>
+              </div>
+            </div>
+            <div className="overflow-y-auto p-4 h-[calc(100%-48px)]">
+              {(!project.versions || project.versions.length === 0) ? (
+                <p className="text-center text-sm text-gray-500">No versions yet.</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {[...project.versions].reverse().map((v) => (
+                    <div key={v.id} className="rounded-xl border border-white/5 bg-zinc-900 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-white">v{v.versionNumber}</span>
+                        <span className="text-[10px] text-gray-500">{new Date(v.createdAt).toLocaleString()}</span>
+                      </div>
+                      <p className="mt-1 text-xs text-gray-400">{v.message}</p>
+                      <button onClick={() => handleRestoreVersion(v.id)} className="mt-2 flex items-center gap-1 text-xs text-violet-400 hover:text-violet-300">
+                        <RotateCcw className="size-3" />Restore
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        
+        {showPromptHistory && (
+          <div className="fixed inset-0 z-50 bg-zinc-950">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
+              <h3 className="text-sm font-medium text-white">Build History</h3>
+              <button onClick={() => setShowPromptHistory(false)} className="p-1 hover:bg-white/10 rounded">
+                <X className="size-4 text-gray-500" />
+              </button>
+            </div>
+            <div className="h-[calc(100%-44px)] overflow-hidden">
+              <PromptHistory />
+            </div>
+          </div>
+        )}
+        
+        {showWhatChanged && (
+          <div className="fixed inset-0 z-50 bg-zinc-950">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
+              <h3 className="text-sm font-medium text-white">What Changed</h3>
+              <button onClick={() => setShowWhatChanged(false)} className="p-1 hover:bg-white/10 rounded">
+                <X className="size-4 text-gray-500" />
+              </button>
+            </div>
+            <div className="h-[calc(100%-44px)] overflow-hidden">
+              <WhatChangedPanel
+                run={currentRun}
+                filesPreserved={project?.files.filter(f => 
+                  !currentRun?.files_created?.includes(f.path) && 
+                  !currentRun?.files_updated?.includes(f.path)
+                ).map(f => f.path) || []}
+                onViewDiff={handleViewDiff}
+                onRevertFile={handleRevertFile}
+                onOpenFile={handleOpenFileFromPanel}
+              />
+            </div>
+          </div>
+        )}
+        
+        {showGitHubPush && (
+          <div className="fixed inset-0 z-50 bg-zinc-950">
+            <GitHubPushPanel
+              projectFiles={project?.files.map(f => ({ path: f.path, content: f.content })) || []}
+              projectName={project?.name || 'Project'}
+              onClose={() => setShowGitHubPush(false)}
+            />
+          </div>
+        )}
+        
+        {/* Insufficient Credits Modal */}
+        {insufficientCreditsModal && (
+          <InsufficientCreditsModal
+            check={insufficientCreditsModal}
+            actionLabel="AI generation"
+            onClose={() => setInsufficientCreditsModal(null)}
+          />
+        )}
+      </>
+    );
+  }
+
+  // ── Desktop View ──
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-black">
       {/* ═══ TOP BAR ═══ */}
