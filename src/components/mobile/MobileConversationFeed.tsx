@@ -73,6 +73,7 @@ export default function MobileConversationFeed({
     <div
       ref={feedRef}
       className="flex-1 overflow-y-auto px-4 py-4 space-y-4 scrollbar-thin"
+      data-testid="mobile-conversation-feed"
     >
       {items.length === 0 && !isProcessing ? (
         <EmptyState />
@@ -148,7 +149,10 @@ function UserPromptCard({ prompt, timestamp }: { prompt: string; timestamp: stri
  */
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center h-full py-12 px-6 text-center">
+    <div 
+      className="flex flex-col items-center justify-center h-full py-12 px-6 text-center"
+      data-testid="mobile-empty-state"
+    >
       <div className="size-16 rounded-2xl bg-violet-500/10 flex items-center justify-center mb-4">
         <Sparkles className="size-8 text-violet-400" />
       </div>

@@ -128,6 +128,28 @@ System automatically classifies prompts as:
    - Badge appears in preview header next to viewport size indicator
    - Helps users understand what preview mode is being used
 
+2. **Mobile-First Builder Redesign** (Added March 19, 2026)
+   - Complete mobile-first, conversation-driven builder UI
+   - Responsive breakpoint at 768px: mobile view (<768px) vs desktop view (>=768px)
+   - Mobile Components (`/app/src/components/mobile/`):
+     - `MobileBuilderHeader` - Compact header with project name, status, preview + menu buttons
+     - `MobileAgentDock` - Sticky bottom composer with input, quick actions, status indicator
+     - `MobileConversationFeed` - Scrollable activity/conversation feed
+     - `MobileFileActionCard` - Expandable file action cards with code preview
+     - `MobileBuildMessageCard` - Status/assistant message cards
+     - `MobileBuildStatusPill` - Compact status indicator
+     - `MobilePreviewCTA` - Floating preview call-to-action button
+     - `MobileToolsSheet` - Bottom sheet for tools (save, download, history, etc.)
+     - `MobilePreviewSheet` - Full-screen preview overlay with viewport toggles
+     - `MobileBuilderView` - Main mobile layout integrating all components
+   - Features:
+     - Sticky agent composer dock at bottom with quick actions
+     - Floating "View Preview" CTA button
+     - File action cards in conversation feed
+     - Bottom sheet for tools/actions
+     - Full-screen preview overlay with mobile/tablet/desktop viewports
+     - Automatic viewport detection and responsive switching
+
 ### Core Features Working
 - Homepage at `/` 
 - Workspace at `/workspace`
@@ -151,12 +173,14 @@ System automatically classifies prompts as:
 - ✅ Revert to version functionality
 - ✅ GitHub push integration
 - ✅ What Changed panel
+- ✅ Mobile-first builder UI redesign
 
 ### P1 (High)
+- Smart Auto-Repair for preview errors
+- GitHub "Pull from Repo" feature
+- Auto-save during generation
 - Add Vue.js project detection and preview support
 - Enhance preview loading states with better visual feedback
-- Improve error recovery in preview
-- Implement auto-save during generation
 
 ### P2 (Medium)
 - Add syntax highlighting for more file types in editor
@@ -171,6 +195,7 @@ System automatically classifies prompts as:
 - Pull from GitHub to project
 
 ## Next Tasks
-1. Implement project templates for quick starts
-2. Add auto-save during generation
-3. Improve error recovery with smart auto-repair
+1. Smart Auto-Repair feature for preview errors
+2. GitHub "Pull from Repo" feature  
+3. Add auto-save during generation
+4. Implement project templates for quick starts

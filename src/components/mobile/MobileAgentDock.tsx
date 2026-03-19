@@ -163,6 +163,7 @@ export default function MobileAgentDock({
               disabled={disabled || isGenerating}
               rows={1}
               className="w-full bg-transparent text-sm text-white placeholder-gray-600 outline-none resize-none py-2 px-1 max-h-[120px] scrollbar-thin disabled:opacity-50"
+              data-testid="mobile-agent-input"
             />
           </div>
 
@@ -184,6 +185,7 @@ export default function MobileAgentDock({
                 onClick={onStop}
                 className="flex items-center justify-center size-10 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 active:bg-red-500/40 transition-colors"
                 aria-label="Stop generation"
+                data-testid="mobile-stop-btn"
               >
                 <Square className="size-4 fill-current" />
               </button>
@@ -198,6 +200,7 @@ export default function MobileAgentDock({
                     : "bg-white/[0.06] text-gray-600"
                 )}
                 aria-label="Send message"
+                data-testid="mobile-send-btn"
               >
                 <Send className="size-4" />
               </button>
