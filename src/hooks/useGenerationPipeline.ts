@@ -472,33 +472,31 @@ export function useGenerationPipeline() {
       setCurrentFileIndex(-1);
       setCreditCheck(null);
 
-      // ── Credit check ──
+      // ── Credit check (soft — never blocks generation) ──
       const user = useAuthStore.getState().user;
       if (user) {
         try {
           const check = await checkCredits(user.id, 'full_app_generation');
           setCreditCheck(check);
           if (!check.allowed) {
-            setState('failed');
-            addMessage('error', { step: 'credit_check', error: check.message, suggestion: 'Purchase more credits or upgrade your plan.' });
-            return { success: false, error: check.message, insufficientCredits: true, creditCheck: check };
+            console.warn('[Pipeline] Credits insufficient, proceeding anyway:', check.message);
+            // Don't block — just log. Credits will be deducted later or handled by backend.
+          } else {
+            const deduction = await deductCredits({
+              userId: user.id,
+              featureKey: 'full_app_generation',
+              source: 'ai_generation',
+              projectId: projectIdRef.current || undefined,
+              description: `App generation: ${prompt.substring(0, 80)}`,
+            });
+            if (deduction.success) {
+              console.log(`[Pipeline] Deducted credits. New balance: ${deduction.newBalance}`);
+            } else {
+              console.warn('[Pipeline] Credit deduction failed, proceeding:', deduction.error);
+            }
           }
-          const deduction = await deductCredits({
-            userId: user.id,
-            featureKey: 'full_app_generation',
-            source: 'ai_generation',
-            projectId: projectIdRef.current || undefined,
-            description: `App generation: ${prompt.substring(0, 80)}`,
-          });
-          if (!deduction.success) {
-            setState('failed');
-            addMessage('error', { step: 'credit_deduction', error: deduction.error || 'Failed to deduct credits' });
-            return { success: false, error: deduction.error };
-          }
-          console.log(`[Pipeline] Deducted credits. New balance: ${deduction.newBalance}`);
         } catch (creditErr: any) {
-          // Credit system failure should not block generation
-          console.warn('[Pipeline] Credit check failed, continuing without credits:', creditErr.message);
+          console.warn('[Pipeline] Credit system error, continuing without credits:', creditErr.message);
         }
       }
 

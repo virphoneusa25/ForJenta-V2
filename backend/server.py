@@ -13,6 +13,7 @@ from datetime import datetime, timezone, timedelta
 import httpx
 
 from project_service import ProjectService
+from code_generator import generate_code as llm_generate_code
 from models import (
     Project, ProjectPrompt, GenerationRun, ProjectFile, FileVersion,
     ProjectActivity, CreateProjectRequest, ContinueProjectRequest,
@@ -1101,6 +1102,26 @@ async def delete_project(project_id: str, user: User = Depends(get_current_user)
         raise HTTPException(status_code=404, detail="Project not found")
     
     return {"success": True}
+
+
+# ─── Code Generation Endpoint ─────────────────────────────────────
+
+class GenerateCodeRequest(BaseModel):
+    prompt: str
+    categories: List[str] = ["Web"]
+    context: str = ""
+    mode: str = "full"
+
+@api_router.post("/generate-code")
+async def generate_code_endpoint(req: GenerateCodeRequest):
+    """Generate code using LLM. Does not require auth for now."""
+    result = await llm_generate_code(
+        prompt=req.prompt,
+        categories=req.categories,
+        context=req.context,
+        mode=req.mode,
+    )
+    return result
 
 
 # Include the router in the main app

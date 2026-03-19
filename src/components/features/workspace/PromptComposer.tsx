@@ -82,6 +82,7 @@ export default function PromptComposer({ onSubmit, initialValue = '', disabled }
             disabled={!value.trim() || disabled}
             className="flex size-9 items-center justify-center rounded-xl bg-white text-black transition-all hover:bg-gray-200 disabled:opacity-30 disabled:hover:bg-white"
             aria-label="Submit"
+            data-testid="workspace-submit-btn"
           >
             <ArrowUp className="size-4" strokeWidth={2.5} />
           </button>

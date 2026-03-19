@@ -1,6 +1,3 @@
-import { supabase } from "@/lib/supabase";
-import { FunctionsHttpError } from "@supabase/supabase-js";
-
 // ─── Types ─────────────────────────────────────────────────────────
 
 export type RouterTask =
@@ -65,37 +62,35 @@ const ROUTER_LABELS: Record<RouterTask | "pipeline" | "complete", string> = {
   complete: "Generation complete!",
 };
 
-// ─── Edge Function Invoker ─────────────────────────────────────────
+// ─── API URL ─────────────────────────────────────────────────────
+const API_URL = import.meta.env.VITE_BACKEND_URL || '';
 
-async function invokeEdgeFunction(body: Record<string, any>): Promise<any> {
-  const { data, error } = await supabase.functions.invoke("generate-code", {
-    body,
+// ─── Backend API Invoker ─────────────────────────────────────────
+
+async function invokeGenerateAPI(body: Record<string, any>): Promise<any> {
+  const response = await fetch(`${API_URL}/api/generate-code`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(body),
   });
 
-  if (error) {
-    let errorMessage = error.message;
-    if (error instanceof FunctionsHttpError) {
-      try {
-        const statusCode = error.context?.status ?? 500;
-        const textContent = await error.context?.text();
-        let parsed: { error?: string } | null = null;
-        try {
-          parsed = JSON.parse(textContent || "{}");
-        } catch {
-          // not JSON
-        }
-        errorMessage =
-          parsed?.error ||
-          `[Code: ${statusCode}] ${textContent || error.message || "Unknown error"}`;
-      } catch {
-        errorMessage = error.message || "Failed to read response";
-      }
+  if (!response.ok) {
+    const errorText = await response.text();
+    let errorMessage = `Generation failed (${response.status})`;
+    try {
+      const parsed = JSON.parse(errorText);
+      errorMessage = parsed.error || parsed.detail || errorMessage;
+    } catch {
+      errorMessage = errorText || errorMessage;
     }
     throw new Error(errorMessage);
   }
 
+  const data = await response.json();
+
   if (!data || data.success === false) {
-    throw new Error(data?.error || "Request failed");
+    throw new Error(data?.error || "Generation request failed");
   }
 
   return data;
@@ -129,11 +124,11 @@ export async function generateCode(
       totalSteps: 7,
     });
 
-    const data = await invokeEdgeFunction({
-      task: "pipeline",
+    const data = await invokeGenerateAPI({
       prompt,
       categories,
-      context,
+      context: context || "",
+      mode: context ? "continuation" : "full",
     });
 
     onProgress?.({
@@ -179,10 +174,11 @@ export async function callRouterTask(
   console.log(`=== CALLING ROUTER TASK: ${task} ===`);
 
   try {
-    const data = await invokeEdgeFunction({
-      task,
+    const data = await invokeGenerateAPI({
       prompt,
-      context,
+      context: context || "",
+      categories: [],
+      mode: task,
     });
 
     return {
