@@ -66,6 +66,56 @@ function langFromPath(p: string): string {
   return m[ext] || 'text';
 }
 
+// ─── Project Type Detection ────────────────────────────────────────
+
+type ProjectType = 'react-ts' | 'react-js' | 'html-js' | 'html' | 'unknown';
+
+function detectProjectType(files: ProjectFile[]): { type: ProjectType; label: string; color: string; icon: string } {
+  const hasAppTsx = files.some(f => f.path.endsWith('App.tsx'));
+  const hasAppJsx = files.some(f => f.path.endsWith('App.jsx'));
+  const hasMainTsx = files.some(f => f.path.endsWith('main.tsx'));
+  const hasMainJsx = files.some(f => f.path.endsWith('main.jsx'));
+  const hasIndexHtml = files.some(f => f.path === 'index.html' || f.path.endsWith('/index.html'));
+  const hasJsFiles = files.some(f => f.path.endsWith('.js') && !f.path.endsWith('.min.js'));
+  const hasTsFiles = files.some(f => f.path.endsWith('.ts') || f.path.endsWith('.tsx'));
+  
+  // Check for React imports in any file
+  const hasReactImport = files.some(f => 
+    (f.path.endsWith('.tsx') || f.path.endsWith('.jsx') || f.path.endsWith('.ts') || f.path.endsWith('.js')) &&
+    (f.content.includes("from 'react'") || f.content.includes('from "react"') || f.content.includes('React.'))
+  );
+
+  if ((hasAppTsx || hasMainTsx) && hasTsFiles) {
+    return { type: 'react-ts', label: 'React + TypeScript', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20', icon: '⚛️' };
+  }
+  if ((hasAppJsx || hasMainJsx) && hasReactImport) {
+    return { type: 'react-js', label: 'React', color: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20', icon: '⚛️' };
+  }
+  if (hasIndexHtml && hasJsFiles) {
+    return { type: 'html-js', label: 'HTML + JavaScript', color: 'bg-orange-500/10 text-orange-400 border-orange-500/20', icon: '🌐' };
+  }
+  if (hasIndexHtml) {
+    return { type: 'html', label: 'HTML', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20', icon: '📄' };
+  }
+  return { type: 'unknown', label: 'Project', color: 'bg-gray-500/10 text-gray-400 border-gray-500/20', icon: '📁' };
+}
+
+// ─── Project Type Badge Component ──────────────────────────────────
+
+function ProjectTypeBadge({ files }: { files: ProjectFile[] }) {
+  const projectInfo = detectProjectType(files);
+  
+  return (
+    <div 
+      className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[10px] font-medium ${projectInfo.color}`}
+      title={`Preview mode: ${projectInfo.label}`}
+    >
+      <span>{projectInfo.icon}</span>
+      <span>{projectInfo.label}</span>
+    </div>
+  );
+}
+
 // ─── Terminal Panel ────────────────────────────────────────────────
 
 function TerminalPanel() {
@@ -591,6 +641,10 @@ function ProjectBuilderInner() {
                         <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-[9px] font-medium text-violet-400 tabular-nums">
                           {viewportSize === 'mobile' ? '375px' : '768px'}
                         </span>
+                      )}
+                      {/* Project Type Badge */}
+                      {project && project.files.length > 0 && (
+                        <ProjectTypeBadge files={project.files} />
                       )}
                       <span className="ml-auto flex items-center gap-1 text-[10px] text-gray-600">
                         <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
