@@ -236,7 +236,7 @@ The generator has been rebuilt into a smart, goal-driven, conversational AI buil
 - Pull from GitHub to project
 
 ## Next Tasks
-1. Complete integration of SmartBuildAgent with ProjectBuilder.tsx
+1. ✅ Complete integration of SmartBuildAgent with ProjectBuilder.tsx (Done)
 2. Smart Auto-Repair feature for preview errors
 3. GitHub "Pull from Repo" feature  
 4. Add auto-save during generation

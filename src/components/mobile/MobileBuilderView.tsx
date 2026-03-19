@@ -26,6 +26,9 @@ import type { ProjectFile } from '@/types';
 // Build status type
 type BuildStatus = 'idle' | 'processing' | 'generating' | 'validating' | 'repairing' | 'preview_ready' | 'paused' | 'failed' | 'complete';
 
+// Import agent types
+import type { AgentMessage, NarrationStatus } from '@/lib/agent';
+
 // Props from ProjectBuilder
 interface MobileBuilderViewProps {
   // Project data
@@ -39,6 +42,10 @@ interface MobileBuilderViewProps {
   pipelineMessages: any[];
   fileCards: any[];
   
+  // Smart Agent state (optional - for new agent mode)
+  agentMessages?: AgentMessage[];
+  agentStatus?: NarrationStatus;
+  
   // Input state
   chatInput: string;
   setChatInput: (value: string) => void;
@@ -51,6 +58,7 @@ interface MobileBuilderViewProps {
   onRefreshPreview: () => void;
   onDebugRepair: () => void;
   onOpenFile: (path: string) => void;
+  onQuickAction?: (action: string) => void;
   
   // Panel toggles
   onShowVersions: () => void;
@@ -80,6 +88,8 @@ export default function MobileBuilderView({
   generationState,
   pipelineMessages,
   fileCards,
+  agentMessages = [],
+  agentStatus,
   chatInput,
   setChatInput,
   onSend,
@@ -89,6 +99,7 @@ export default function MobileBuilderView({
   onRefreshPreview,
   onDebugRepair,
   onOpenFile,
+  onQuickAction,
   onShowVersions,
   onShowHistory,
   onShowChanges,
@@ -199,6 +210,9 @@ export default function MobileBuilderView({
         processingMessage={statusMessage}
         onOpenFile={onOpenFile}
         onViewFileFull={handleViewFileFull}
+        agentMessages={agentMessages}
+        agentStatus={agentStatus}
+        onQuickAction={onQuickAction}
       />
 
       {/* Floating Preview CTA (hidden when generating or preview sheet open) */}

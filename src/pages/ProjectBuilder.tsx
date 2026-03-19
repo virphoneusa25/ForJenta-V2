@@ -42,6 +42,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useToast } from '@/hooks/use-toast';
 import { useGenerationPipeline } from '@/hooks/useGenerationPipeline';
 import { usePersistentGeneration } from '@/hooks/usePersistentGeneration';
+import { useSmartAgent } from '@/hooks/useSmartAgent';
 import { debugAndRepair } from '@/lib/api';
 import GenerationPanel from '@/components/features/builder/GenerationPanel';
 import SafePreviewShell from '@/components/features/builder/SafePreviewShell';
@@ -60,6 +61,7 @@ import CreditEstimate from '@/components/features/credits/CreditEstimate';
 import InsufficientCreditsModal from '@/components/features/credits/InsufficientCreditsModal';
 import { useCredits } from '@/hooks/useCredits';
 import type { CreditCheckResult } from '@/types/credits';
+import type { NarrationStatus } from '@/lib/agent';
 import logoImg from '@/assets/logo.png';
 
 // ─── Constants ─────────────────────────────────────────────────────
@@ -219,6 +221,9 @@ function ProjectBuilderInner() {
 
   // Generation pipeline
   const pipeline = useGenerationPipeline();
+
+  // Smart AI Build Agent
+  const smartAgent = useSmartAgent();
 
   const [activeFileIdx, setActiveFileIdx] = useState(0);
   const [code, setCode] = useState('');
@@ -638,10 +643,12 @@ function ProjectBuilderInner() {
           projectName={project.name}
           projectId={project.id}
           files={project.files}
-          isGenerating={pipeline.isGenerating}
+          isGenerating={pipeline.isGenerating || smartAgent.isWorking}
           generationState={pipeline.state}
           pipelineMessages={pipeline.messages}
           fileCards={pipeline.fileCards}
+          agentMessages={smartAgent.messages}
+          agentStatus={smartAgent.status}
           chatInput={chatInput}
           setChatInput={setChatInput}
           onSend={handleSend}
@@ -651,6 +658,9 @@ function ProjectBuilderInner() {
           onRefreshPreview={() => setPreviewKey((k) => k + 1)}
           onDebugRepair={handleDebugRepair}
           onOpenFile={handleOpenFileFromPanel}
+          onQuickAction={(action) => {
+            setChatInput(action);
+          }}
           onShowVersions={() => setShowVersions(true)}
           onShowHistory={() => setShowPromptHistory(true)}
           onShowChanges={() => setShowWhatChanged(true)}
