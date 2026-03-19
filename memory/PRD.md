@@ -18,11 +18,7 @@ Clone the repository https://github.com/virphoneusa25/ForJenta-9bg3j5.git and:
 1. **Fixed Live Preview for Plain HTML Projects**
    - Modified `/app/src/lib/previewRenderer.ts` to detect project type
    - Added `isPlainHTMLProject()` and `isReactProject()` detection functions
-   - Added `renderPlainHTMLProject()` function that:
-     - Inlines CSS files
-     - Inlines JavaScript files by replacing script src references
-     - Injects console capture for preview console integration
-   - Plain HTML projects (like todo-app) now render correctly instead of showing "No App.tsx found" error
+   - Added `renderPlainHTMLProject()` function for direct HTML rendering
 
 2. **Fixed Login/Authentication Issues**
    - Initially removed non-functional Google OAuth (Supabase provider not enabled)
@@ -31,38 +27,98 @@ Clone the repository https://github.com/virphoneusa25/ForJenta-9bg3j5.git and:
 3. **Environment Configuration**
    - Updated `vite.config.ts` to use port 3000 and allow preview hosts
    - Configured `allowedHosts` for Emergent preview environment
-   - Updated supervisor to run Vite instead of old React setup
-
-4. **Dependencies**
-   - Installed missing `@monaco-editor/react` package
 
 ### New Features
 
 #### Google OAuth via Emergent Auth
-- **Login page**: "Continue with Google" button using Emergent Auth
-- **Signup page**: "Continue with Google" button using Emergent Auth
-- **AuthCallback component**: Handles session_id exchange from OAuth callback
-- Backend endpoints:
-  - `POST /api/auth/session` - Exchange Emergent session_id for app session
-  - `GET /api/auth/me` - Get current authenticated user
-  - `POST /api/auth/logout` - Logout and clear session
+- "Continue with Google" button on Login and Signup pages
+- Uses Emergent Auth (`auth.emergentagent.com`) - no setup needed!
+- AuthCallback component handles OAuth response
+- Backend session management with httpOnly cookies
 
 #### GitHub Integration
-- **Connect GitHub account** via OAuth
-- **List repositories** - View all user's public and private repos
-- **Create repositories** - Create new repos from ForJenta
-- **Branch management** - List and switch branches
-- **Push files** - Push project files to GitHub repos
-- Backend endpoints:
-  - `GET /api/github/connect` - Get GitHub authorization URL
-  - `POST /api/github/callback` - Exchange code for token
-  - `DELETE /api/github/disconnect` - Disconnect GitHub account
-  - `GET /api/github/status` - Check connection status
-  - `GET /api/github/repos` - List repositories
-  - `POST /api/github/repos` - Create new repository
-  - `GET /api/github/repos/{owner}/{repo}/branches` - List branches
-  - `GET /api/github/repos/{owner}/{repo}/contents` - Get file contents
-  - `POST /api/github/repos/{owner}/{repo}/push` - Push files to repo
+- OAuth flow to connect GitHub accounts
+- Repository listing (public + private)
+- Create new repositories
+- Branch management
+- Push files to repos
+
+#### Persistent Project-Based AI Builder (MAJOR FEATURE)
+
+##### Backend (MongoDB + FastAPI)
+- **Models** (`/app/backend/models.py`):
+  - `Project` - Main project entity with metadata
+  - `ProjectPrompt` - Conversation/build history
+  - `GenerationRun` - Individual generation executions
+  - `GenerationStep` - Steps within a generation
+  - `ProjectFile` - Current file state
+  - `FileVersion` - Version history for each file
+  - `ProjectActivity` - Activity timeline
+  - `PreviewCheck` - Preview validation results
+  - `RepairRecord` - Repair tracking
+
+- **Project Service** (`/app/backend/project_service.py`):
+  - Create/Read/Update/Delete projects
+  - Prompt history management
+  - File versioning with full history
+  - Generation run tracking
+  - Prompt classification (continuation vs rebuild)
+  - Activity logging
+
+- **API Endpoints**:
+  - `POST /api/projects` - Create new project
+  - `GET /api/projects` - List user's projects
+  - `GET /api/projects/{id}` - Get project details
+  - `GET /api/projects/{id}/context` - Load full context for continuation
+  - `POST /api/projects/{id}/prompts` - Add prompt with classification
+  - `GET /api/projects/{id}/prompts` - Get prompt history
+  - `POST /api/projects/{id}/files` - Save files with versioning
+  - `GET /api/projects/{id}/files` - Get current files
+  - `GET /api/projects/{id}/files/{path}/versions` - File version history
+  - `GET /api/projects/{id}/generations` - Generation history
+  - `PATCH /api/projects/{id}/generations/{run_id}` - Update generation
+  - `PATCH /api/projects/{id}/architecture` - Update architecture metadata
+  - `GET /api/projects/{id}/activity` - Activity timeline
+  - `DELETE /api/projects/{id}` - Soft delete project
+
+##### Frontend
+- **Persistent Project Store** (`/app/src/stores/persistentProjectStore.ts`):
+  - Current project state
+  - Files, prompts, generations, activity
+  - CRUD operations
+  - Context loading
+  - File version retrieval
+
+- **Components**:
+  - `PromptHistory` - Shows conversation/build timeline
+  - `ContinuationPromptComposer` - Input with continuation indicators
+  - `FileVersionHistory` - Version history for files
+
+- **Generation Hook** (`/app/src/hooks/usePersistentGeneration.ts`):
+  - Loads project context before generation
+  - Classifies prompts (add_feature, refine, repair, etc.)
+  - Preserves existing files during continuation
+  - Saves files with version history
+  - Updates project architecture
+
+##### Prompt Classification
+System automatically classifies prompts as:
+- `create_initial` - First prompt, new project
+- `add_feature` - Add new feature
+- `refine_feature` - Modify/improve existing
+- `redesign_ui` - UI/UX changes
+- `repair_bug` - Fix bugs
+- `refactor_code` - Code cleanup
+- `connect_backend` - Backend/data connections
+- `replace_file` - Replace specific files
+- `full_rebuild` - Only if explicitly requested
+
+##### Continuation Behavior
+- Default: CONTINUE/MODIFY existing project
+- Only full rebuild if user explicitly requests it
+- Preserves working files
+- Tracks what changed in each prompt
+- Full version history for rollback
 
 ### UX Enhancements
 1. **Project Type Indicator Badge** (Added)
