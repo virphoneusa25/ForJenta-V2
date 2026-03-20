@@ -6,72 +6,51 @@
 ForJenta is a premium, persistent, project-based AI code generation IDE styled as a dark developer-tool environment.
 
 ### Core Architecture
-- **Frontend**: Vite + React + TypeScript + TailwindCSS + Zustand (at `/app/src/`)
-- **Backend**: FastAPI + Python + MongoDB (at `/app/backend/`)
-- **Code Generation**: Inworld AI Router (OpenAI-compatible) at `https://api.inworld.ai/v1/chat/completions`
+- **Frontend**: Vite + React + TypeScript + TailwindCSS + Zustand
+- **Backend**: FastAPI + Python + MongoDB
+- **Code Generation**: Inworld AI Router (OpenAI-compatible)
 - **Auth**: Emergent-managed Google OAuth + GitHub OAuth
 
+### Generation State Machine
+```
+idle → preparing → generating → applying_files → completed
+                                               → failed
+```
+- Only one run at a time via module-level `_genLock`
+- Each run has a unique `runId` logged to terminal
+- Duplicate triggers rejected with console log
+- `genPhase` gates new runs: only `idle`/`completed`/`failed` allow new runs
+
+### Anti-Loop Protections
+1. `_initLock` — module-level, prevents concurrent `initProject` calls
+2. `_genLock` — module-level, prevents concurrent `sendPrompt` calls
+3. `_providerCheckedForProject` — tracks which project already had provider checked
+4. `_currentRunId` — tracks active run, ignores stale callbacks
+5. `initCalledFor` ref — prevents React strict mode / HMR double-init
+6. `sendingRef` — PromptComposer local ref prevents Enter+click double-fire
+7. `genPhase` state machine — rejects runs unless idle/completed/failed
+
 ### Provider Execution Layer
-- `modelConfig.ts` — ModelConfig type with providerId, providerLabel, modelId, modelLabel, apiBaseUrl, authType, icon
+- `modelConfig.ts` — ModelConfig type with providerId, providerLabel, modelId, etc.
 - `aiProviderRegistry.ts` — Provider registry + `/api/provider/status` health check
-- `generationOrchestrator.ts` — Full generation flow with retry logic (2 retries, 150s timeout)
-- Backend `/api/generate` — Full contract endpoint (rootPrompt, followUpPrompt, fileTree, buildHistory)
-- Backend `/api/provider/status` — Provider health check (no auth required)
-- Startup validation logs provider configuration
-
-### IDE Components
-- `IDEWorkspace.tsx` — Main page shell
-- `WorkspaceHeader.tsx` — Project name, App/Code tabs
-- `AIFeedPanel.tsx` — AI chat, error cards, retry/regenerate, model picker (Inworld — Inworld AI)
-- `ExplorerPanel.tsx` — File tree from real project files
-- `EditorCanvas.tsx` — Monaco Editor with tabs
-- `PreviewPane.tsx` — Live HTML/CSS/JS iframe preview
-- `BottomTerminalDock.tsx` — Terminal with stage-by-stage logs
-- `ActivityBar.tsx` — VS Code-style icon bar
-
-### State Management (workspaceStore.ts)
-- Project data, files, file tree
-- Open tabs, active file, editor content
-- AI chat messages, generation state
-- Terminal output, preview HTML
-- Provider config (Inworld default), provider availability
-- Session persistence via localStorage
-- Context memory (activeProjectPrompt, conversation history)
+- `generationOrchestrator.ts` — Full flow with retry logic (2 retries, 150s timeout)
+- Backend `/api/generate` — Full contract (rootPrompt, followUpPrompt, fileTree, buildHistory)
+- Backend `/api/provider/status` — Health check (no auth required)
 
 ### What's Been Implemented
-- [x] Full IDE workspace matching reference screenshot
-- [x] **Inworld AI provider execution layer** (modelConfig, aiProviderRegistry, generationOrchestrator)
-- [x] **Backend /api/generate** with full input/output contract (no user auth required)
-- [x] **Backend /api/provider/status** endpoint for health checks
-- [x] **Startup validation** of Inworld API key and model config
-- [x] **Retry logic** (2 retries on network failures, 150s timeout)
-- [x] **Truncated JSON repair** for oversized AI responses
-- [x] **Truthful model picker** showing "Inworld — Inworld AI"
-- [x] **Structured error codes** (PROVIDER_KEY_MISSING, PROVIDER_REQUEST_FAILED, NETWORK_FETCH_FAILED, etc.)
-- [x] **No "local mode"** — generation always uses backend provider
-- [x] **Precise terminal logging** (stage-by-stage: provider validation, request, response, file ops)
-- [x] **Error cards with retry** button and structured error codes
-- [x] **Regenerate button** after successful generation
-- [x] **localStorage persistence** for messages, files, tabs, model
-- [x] **Context memory** — original prompt + files + conversation as AI context
-- [x] **Follow-up prompts** treated as refinements (continuation mode with fileTree)
+- [x] IDE workspace with real project data
+- [x] Inworld AI provider execution layer
+- [x] **Generation state machine** (idle/preparing/generating/applying_files/completed/failed)
+- [x] **Module-level locks** preventing all duplicate triggers
+- [x] **Ref-based guards** for React strict mode / HMR / Enter+click
+- [x] **Provider status cached** (checked once per project, not every render)
+- [x] **Terminal starts fresh** each session (no stale log accumulation)
+- [x] **Run IDs** for each generation logged to terminal
+- [x] Retry logic (2 retries on network failures)
+- [x] Truncated JSON repair for oversized AI responses
+- [x] localStorage persistence for messages/files/tabs
+- [x] Context memory (original prompt + files as AI context)
 - [x] Monaco Editor, live preview, file explorer, tab management
-- [x] Resizable panels, activity bar, global status bar
-
-### Bug Fixes Applied
-- [x] P0: 401 on generation — removed auth dependency, generation uses server-side credentials
-- [x] P0: "Failed to fetch" — added retry logic, increased timeouts
-- [x] P0: Truncated AI responses — JSON repair for incomplete files
-- [x] P0: Misleading "local mode" messages — removed, replaced with truthful provider status
-- [x] P0: Generator crash, dead Supabase, credit blocking (from previous sessions)
-
-### API Endpoints
-- `GET /api/provider/status` — Provider health check (no auth)
-- `POST /api/generate` — Full generation endpoint (no auth, server-side credentials)
-- `POST /api/generate-code` — Legacy generation endpoint (backward compat)
-- `GET /api/projects/:id` — Load project (auth required)
-- `POST /api/projects/:id/prompts` — Register prompt (auth, optional)
-- `POST /api/projects/:id/files` — Save files (auth, optional)
 
 ### Pending Tasks
 #### P1 - Upcoming
@@ -80,18 +59,15 @@ ForJenta is a premium, persistent, project-based AI code generation IDE styled a
 - Auto-save during generation
 
 #### P2 - Future
-- Project templates (React, HTML, TypeScript starters)
-- Framework support (Vue, Svelte)
-- Streaming generation narration
-- Mobile responsive IDE layout
-- Deprecate legacy ProjectBuilder.tsx
+- Project templates, Framework support
+- Streaming narration, Mobile responsive IDE
 
 ### Test Reports
-- iteration_19.json: Provider layer + generation E2E — 100% (backend 14/14, frontend all pass)
-- iteration_18.json: Previous 401 fix — 100%
-- iteration_17.json: Initial functional IDE — 100%
+- iteration_20.json: Loop prevention — 100% (backend 9/9, frontend all verified, triple-Enter = 1 submission)
+- iteration_19.json: Provider layer — 100%
+- iteration_18.json: 401 fix — 100%
+- iteration_17.json: Initial IDE — 100%
 
 ### Test Credentials
 - Session: test-session-8ee31486befa493f
 - Project: proj_c427dc85e06a
-- Email: rmcknight@virphoneusa.com
