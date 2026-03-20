@@ -13,7 +13,7 @@ import os
 import time
 
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://forjenta-ide.preview.emergentagent.com').rstrip('/')
-AUTH_TOKEN = "test-session-392c2617873443118634ef418010156c"
+AUTH_TOKEN = "test-session-5109b5df9ac34742"
 
 class TestStatusEndpoints:
     """Test /api/status endpoints - no auth required"""

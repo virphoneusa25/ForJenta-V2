@@ -1,46 +1,65 @@
-import { useState, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useEffect, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { GitBranch, Lock, XCircle, AlertTriangle, CheckCircle, Bell } from 'lucide-react';
+import { useWorkspaceStore } from '@/stores/workspaceStore';
 import WorkspaceHeader from '@/components/ide/WorkspaceHeader';
 import AIFeedPanel from '@/components/ide/AIFeedPanel';
 import ActivityBar from '@/components/ide/ActivityBar';
 import ExplorerPanel from '@/components/ide/ExplorerPanel';
 import EditorCanvas from '@/components/ide/EditorCanvas';
 import BottomTerminalDock from '@/components/ide/BottomTerminalDock';
+import PreviewPane from '@/components/ide/PreviewPane';
 
 export default function IDEWorkspace() {
   const { id } = useParams<{ id: string }>();
-  const [activeFile, setActiveFile] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'code' | 'app'>('code');
-  const [terminalExpanded, setTerminalExpanded] = useState(false);
+  const navigate = useNavigate();
+  const {
+    projectName,
+    projectLoading,
+    fileTree,
+    activeFile,
+    activeView,
+    terminalExpanded,
+    files,
+    loadProject,
+    selectFile,
+    toggleTerminal,
+    setActiveView,
+    reset,
+  } = useWorkspaceStore();
+
+  useEffect(() => {
+    if (id) {
+      reset();
+      loadProject(id);
+    }
+    return () => { reset(); };
+  }, [id]);
 
   const handleFileSelect = useCallback((path: string) => {
-    setActiveFile(path);
-  }, []);
+    selectFile(path);
+  }, [selectFile]);
 
-  // Mock project files matching the screenshot
-  const projectFiles = [
-    { path: '.orchids', type: 'folder' as const, children: [] },
-    { path: 'node_modules', type: 'folder' as const, children: [] },
-    { path: 'src', type: 'folder' as const, children: [
-      { path: 'src/engine', type: 'folder' as const, children: [] },
-      { path: 'src/world', type: 'folder' as const, children: [] },
-      { path: 'src/player', type: 'folder' as const, children: [] },
-      { path: 'src/vehicles', type: 'folder' as const, children: [] },
-    ]},
-    { path: '.gitignore', type: 'file' as const, language: 'git' },
-    { path: 'index.html', type: 'file' as const, language: 'html' },
-    { path: 'package-lock.json', type: 'file' as const, language: 'json' },
-    { path: 'package.json', type: 'file' as const, language: 'json' },
-  ];
+  if (projectLoading) {
+    return (
+      <div className="ide-shell" data-testid="ide-workspace-loading">
+        <div className="flex items-center justify-center h-screen bg-[#1a1b1e]">
+          <div className="flex flex-col items-center gap-3">
+            <div className="size-8 rounded-full border-2 border-white/10 border-t-[#6db3f2] animate-spin" />
+            <span className="text-sm text-[#8b93a1]">Loading project...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="ide-shell" data-testid="ide-workspace">
       <WorkspaceHeader
-        projectName="AI-Powered Document Summari..."
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
+        projectName={projectName || 'Untitled Project'}
+        activeTab={activeView}
+        onTabChange={setActiveView}
       />
       <div className="ide-main">
         <PanelGroup direction="horizontal" autoSaveId="ide-layout">
@@ -54,22 +73,26 @@ export default function IDEWorkspace() {
             <div className="ide-center-col">
               <ActivityBar />
               <ExplorerPanel
-                files={projectFiles}
+                files={fileTree}
                 activeFile={activeFile}
                 onFileSelect={handleFileSelect}
               />
             </div>
           </Panel>
           <PanelResizeHandle className="ide-resize-handle" />
-          {/* Right: Editor + Terminal */}
+          {/* Right: Editor/Preview + Terminal */}
           <Panel defaultSize={48} minSize={30}>
             <div className="ide-right-col">
               <div className="ide-editor-area">
-                <EditorCanvas activeFile={activeFile} />
+                {activeView === 'code' ? (
+                  <EditorCanvas activeFile={activeFile} />
+                ) : (
+                  <PreviewPane />
+                )}
               </div>
               <BottomTerminalDock
                 expanded={terminalExpanded}
-                onToggle={() => setTerminalExpanded(e => !e)}
+                onToggle={toggleTerminal}
               />
             </div>
           </Panel>
@@ -95,11 +118,11 @@ export default function IDEWorkspace() {
           </div>
           <div className="ide-status-item text-[#98c379]">
             <CheckCircle size={12} />
-            <span>1</span>
+            <span>{files.length}</span>
           </div>
         </div>
         <div className="ide-status-right">
-          <span className="ide-status-item text-[#8b93a1]">Layout: US</span>
+          <span className="ide-status-item text-[#8b93a1]">{files.length} files</span>
           <Bell size={12} className="text-[#8b93a1]" />
         </div>
       </div>

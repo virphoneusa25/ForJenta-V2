@@ -1,14 +1,15 @@
 """
-Code Generation Service - Uses LLM to generate web application code
+Code Generation Service - Uses Inworld AI Router (OpenAI-compatible) to generate web application code
 """
 import os
 import json
-import uuid
 import traceback
+import httpx
 from dotenv import load_dotenv
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 load_dotenv()
+
+INWORLD_API_URL = "https://api.inworld.ai/v1/chat/completions"
 
 SYSTEM_PROMPT = """You are ForJenta, an expert AI web application builder. You generate complete, working web applications.
 
@@ -75,24 +76,18 @@ Rules:
 
 
 async def generate_code(prompt: str, categories: list[str], context: str = "", mode: str = "full") -> dict:
-    """Generate code using LLM"""
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
-    if not api_key:
-        return {"success": False, "error": "LLM API key not configured", "files": []}
+    """Generate code using Inworld AI Router (OpenAI-compatible endpoint)"""
+    api_key = os.environ.get("INWORLD_API_KEY")
+    router_name = os.environ.get("INWORLD_ROUTER", "default-forjenta-model")
+    backup_router = os.environ.get("INWORLD_BACKUP_ROUTER", "backup-router")
 
-    session_id = f"gen-{uuid.uuid4().hex[:12]}"
-    
+    if not api_key:
+        return {"success": False, "error": "Inworld AI API key not configured", "files": []}
+
     is_continuation = bool(context and context.strip())
     system_msg = CONTINUATION_PROMPT if is_continuation else SYSTEM_PROMPT
-    
-    chat = LlmChat(
-        api_key=api_key,
-        session_id=session_id,
-        system_message=system_msg,
-    )
-    chat.with_model("openai", "gpt-4o")
 
-    # Build the user message
+    # Build user message
     if is_continuation:
         user_text = f"""Here is the current project context:
 
@@ -113,49 +108,81 @@ Categories: {', '.join(categories)}
 
 Generate all necessary files as a complete working application. Respond with JSON only."""
 
+    messages = [
+        {"role": "system", "content": system_msg},
+        {"role": "user", "content": user_text},
+    ]
+
+    # Try primary router, then backup
+    for model_name in [f"inworld/{router_name}", f"inworld/{backup_router}"]:
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(
+                    INWORLD_API_URL,
+                    headers={
+                        "Authorization": f"Basic {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model_name,
+                        "messages": messages,
+                        "temperature": 0.7,
+                        "max_tokens": 16000,
+                    },
+                )
+
+                if response.status_code != 200:
+                    print(f"[Inworld] {model_name} returned {response.status_code}: {response.text[:300]}")
+                    continue
+
+                data = response.json()
+                content = data["choices"][0]["message"]["content"]
+
+                return _parse_generation_response(content)
+
+        except Exception as e:
+            print(f"[Inworld] Error with {model_name}: {e}")
+            traceback.print_exc()
+            continue
+
+    return {"success": False, "error": "All Inworld AI routers failed", "files": []}
+
+
+def _parse_generation_response(response_text: str) -> dict:
+    """Parse the JSON response from the LLM."""
+    text = response_text.strip()
+
+    # Handle markdown code fences if LLM wraps response
+    if text.startswith("```"):
+        lines = text.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines)
+
     try:
-        user_message = UserMessage(text=user_text)
-        response = await chat.send_message(user_message)
-        
-        # Parse the JSON response
-        response_text = response.strip()
-        
-        # Handle markdown code fences if LLM wraps response
-        if response_text.startswith("```"):
-            # Remove ```json and ``` wrappers
-            lines = response_text.split("\n")
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines[-1].strip() == "```":
-                lines = lines[:-1]
-            response_text = "\n".join(lines)
-        
-        result = json.loads(response_text)
-        
-        if not isinstance(result.get("files"), list):
-            return {"success": False, "error": "Invalid response format from AI", "files": []}
-        
-        # Ensure each file has required fields
-        clean_files = []
-        for f in result["files"]:
-            if "path" in f and "content" in f:
-                clean_files.append({
-                    "path": f["path"],
-                    "content": f["content"],
-                    "language": f.get("language", guess_language(f["path"])),
-                })
-        
-        return {
-            "success": True,
-            "files": clean_files,
-            "summary": result.get("summary", f"Generated {len(clean_files)} files"),
-        }
-        
+        result = json.loads(text)
     except json.JSONDecodeError as e:
         return {"success": False, "error": f"Failed to parse AI response: {str(e)}", "files": []}
-    except Exception as e:
-        traceback.print_exc()
-        return {"success": False, "error": str(e), "files": []}
+
+    if not isinstance(result.get("files"), list):
+        return {"success": False, "error": "Invalid response format from AI", "files": []}
+
+    clean_files = []
+    for f in result["files"]:
+        if "path" in f and "content" in f:
+            clean_files.append({
+                "path": f["path"],
+                "content": f["content"],
+                "language": f.get("language", guess_language(f["path"])),
+            })
+
+    return {
+        "success": True,
+        "files": clean_files,
+        "summary": result.get("summary", f"Generated {len(clean_files)} files"),
+    }
 
 
 def guess_language(path: str) -> str:
