@@ -1,73 +1,81 @@
 # ForJenta - AI Code Generation IDE
 
-## Product Requirements Document
+## Product Overview
+ForJenta is a premium AI-powered code generation IDE that allows users to describe what they want to build and generates production-ready code instantly.
 
-### Overview
-ForJenta is a premium, persistent, project-based AI code generation IDE styled as a dark developer-tool environment.
+## Core Requirements
+- Users enter a prompt on the landing page
+- Unauthenticated users are prompted to sign in (Google OAuth via Emergent Auth)
+- After auth, user is redirected to a new project workspace where generation starts automatically
+- The user's original prompt must persist across the authentication boundary
+- Generated code is displayed in a full IDE workspace with file explorer, editor, and preview
 
-### Core Architecture
-- **Frontend**: Vite + React + TypeScript + TailwindCSS + Zustand
+## Architecture
+- **Frontend**: Vite + React + TypeScript + TailwindCSS + Zustand (state management)
 - **Backend**: FastAPI + Python + MongoDB
-- **Code Generation**: Inworld AI Router (OpenAI-compatible)
-- **Auth**: Emergent-managed Google OAuth + GitHub OAuth
+- **Auth**: Emergent-managed Google Auth + Supabase fallback for email/password
+- **AI Provider**: Inworld AI (server-side credentials)
+- **State Persistence**: sessionStorage for cross-route prompt handoff
 
-### Generation State Machine
-```
-idle → preparing → generating → applying_files → completed
-                                               → failed
-```
-- Only one run at a time via module-level `_genLock`
-- Each run has a unique `runId` logged to terminal
-- Duplicate triggers rejected with console log
-- `genPhase` gates new runs: only `idle`/`completed`/`failed` allow new runs
+## Key User Flow
+1. Landing page → User enters prompt
+2. If unauthenticated → `savePendingPrompt()` → Auth Modal → Google OAuth
+3. After OAuth → `AuthCallback` exchanges session → redirects to `/workspace`
+4. `useOAuthCallback` detects pending prompt → calls `POST /api/projects` to create real project
+5. Sets `forjenta_auto_generate` in sessionStorage → navigates to `/project/:id`
+6. `IDEWorkspace` loads → `initProject` fetches project → auto-generate useEffect triggers `sendPrompt`
+7. Code generation runs via `/api/generate` → files displayed in IDE
 
-### Anti-Loop Protections
-1. `_initLock` — module-level, prevents concurrent `initProject` calls
-2. `_genLock` — module-level, prevents concurrent `sendPrompt` calls
-3. `_providerCheckedForProject` — tracks which project already had provider checked
-4. `_currentRunId` — tracks active run, ignores stale callbacks
-5. `initCalledFor` ref — prevents React strict mode / HMR double-init
-6. `sendingRef` — PromptComposer local ref prevents Enter+click double-fire
-7. `genPhase` state machine — rejects runs unless idle/completed/failed
+## What's Been Implemented
 
-### Provider Execution Layer
-- `modelConfig.ts` — ModelConfig type with providerId, providerLabel, modelId, etc.
-- `aiProviderRegistry.ts` — Provider registry + `/api/provider/status` health check
-- `generationOrchestrator.ts` — Full flow with retry logic (2 retries, 150s timeout)
-- Backend `/api/generate` — Full contract (rootPrompt, followUpPrompt, fileTree, buildHistory)
-- Backend `/api/provider/status` — Health check (no auth required)
+### Completed (as of 2026-03-20)
+- [x] Full IDE workspace with Monaco editor, file explorer, terminal, preview
+- [x] Inworld AI integration for code generation
+- [x] Emergent-managed Google Auth (OAuth flow)
+- [x] GitHub OAuth integration for repo management
+- [x] Generation state machine (idle → preparing → generating → applying_files → completed)
+- [x] Generation loop prevention (initGuard, sendingRef, module-level locks)
+- [x] Provider execution layer (generationOrchestrator.ts, aiProviderRegistry.ts)
+- [x] Backend API hardening (/api/generate with timeout, retry, JSON parsing)
+- [x] **P0 FIX: E2E User Journey** - Prompt persistence through auth via sessionStorage
+  - useOAuthCallback.ts: Creates REAL backend projects instead of fake client-side IDs
+  - IDEWorkspace.tsx: Auto-triggers generation from pending prompt after project loads
+  - workspaceStore.ts: Guards against overwriting active generation state
+  - AuthModal.tsx: Creates real backend projects in handlePostAuthHandoff
+- [x] Persistent project store (MongoDB CRUD for projects, files, prompts)
+- [x] Project workspace page with project listing and detail panels
 
-### What's Been Implemented
-- [x] IDE workspace with real project data
-- [x] Inworld AI provider execution layer
-- [x] **Generation state machine** (idle/preparing/generating/applying_files/completed/failed)
-- [x] **Module-level locks** preventing all duplicate triggers
-- [x] **Ref-based guards** for React strict mode / HMR / Enter+click
-- [x] **Provider status cached** (checked once per project, not every render)
-- [x] **Terminal starts fresh** each session (no stale log accumulation)
-- [x] **Run IDs** for each generation logged to terminal
-- [x] Retry logic (2 retries on network failures)
-- [x] Truncated JSON repair for oversized AI responses
-- [x] localStorage persistence for messages/files/tabs
-- [x] Context memory (original prompt + files as AI context)
-- [x] Monaco Editor, live preview, file explorer, tab management
+## Key API Endpoints
+- `POST /api/auth/session` - Exchange Emergent Auth session_id
+- `GET /api/auth/me` - Get current user
+- `POST /api/projects` - Create project (requires auth)
+- `GET /api/projects/:id` - Get project details
+- `POST /api/projects/:id/prompts` - Add prompt to project
+- `POST /api/projects/:id/files` - Save generated files
+- `POST /api/generate` - Generate code (no auth, uses server-side Inworld API key)
+- `GET /api/provider/status` - Check AI provider availability
 
-### Pending Tasks
-#### P1 - Upcoming
-- Smart Auto-Repair for preview errors
-- GitHub integration (Pull from GitHub)
-- Auto-save during generation
+## Prioritized Backlog
 
-#### P2 - Future
-- Project templates, Framework support
-- Streaming narration, Mobile responsive IDE
+### P1 - Upcoming Tasks
+- Smart Auto-Repair for code preview errors
+- GitHub Integration: "Pull from GitHub" feature
+- Auto-save functionality during code generation
 
-### Test Reports
-- iteration_20.json: Loop prevention — 100% (backend 9/9, frontend all verified, triple-Enter = 1 submission)
-- iteration_19.json: Provider layer — 100%
-- iteration_18.json: 401 fix — 100%
-- iteration_17.json: Initial IDE — 100%
+### P2 - Future Tasks
+- Project templates (React, HTML, TypeScript)
+- Support for additional frameworks (Vue, Svelte)
+- Streaming narration from the AI
+- Mobile responsive IDE layout
+- Refactor legacy ProjectBuilder.tsx page
 
-### Test Credentials
-- Session: test-session-8ee31486befa493f
-- Project: proj_c427dc85e06a
+## Key Files
+- `/app/src/hooks/useOAuthCallback.ts` - Post-OAuth project creation
+- `/app/src/hooks/usePromptFlow.ts` - sessionStorage prompt persistence
+- `/app/src/pages/IDEWorkspace.tsx` - IDE workspace with auto-generate
+- `/app/src/stores/workspaceStore.ts` - Central Zustand store
+- `/app/src/components/features/HeroSection.tsx` - Landing page prompt form
+- `/app/src/components/features/AuthModal.tsx` - Auth modal with prompt handoff
+- `/app/src/pages/AuthCallback.tsx` - OAuth callback handler
+- `/app/src/lib/generationOrchestrator.ts` - AI generation orchestration
+- `/app/backend/server.py` - FastAPI backend
