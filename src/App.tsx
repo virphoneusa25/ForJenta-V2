@@ -12,6 +12,7 @@ const Resources = lazy(() => import('@/pages/Resources'));
 const Login = lazy(() => import('@/pages/Login'));
 const Signup = lazy(() => import('@/pages/Signup'));
 const ProjectBuilder = lazy(() => import('@/pages/ProjectBuilder'));
+const IDEWorkspace = lazy(() => import('@/pages/IDEWorkspace'));
 const AdminDashboard = lazy(() => import('@/pages/AdminDashboard'));
 const Workspace = lazy(() => import('@/pages/Workspace'));
 const Dashboard = lazy(() => import('@/pages/Dashboard'));
@@ -77,7 +78,7 @@ function App() {
           <Route path="/resources" element={<Resources />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
-          <Route path="/project/:id" element={<ProjectBuilder />} />
+          <Route path="/project/:id" element={<IDEWorkspace />} />
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/billing" element={<Billing />} />
