@@ -8,6 +8,7 @@ import { getPendingPrompt, clearPendingPrompt } from '@/hooks/usePromptFlow';
 import { supabase } from '@/lib/supabase';
 import logoImg from '@/assets/logo.png';
 
+const API_URL = import.meta.env.VITE_BACKEND_URL || '';
 const AUTO_CONFIRM_EMAILS = new Set(['rmcknight@virphoneusa.com']);
 
 interface AuthModalProps {
@@ -52,7 +53,6 @@ export default function AuthModal({ isOpen, onClose, onSuccess, promptPreview }:
     if (pending) {
       toast({ title: 'Setting up your workspace...', description: 'Creating project from your prompt.' });
 
-      const projectId = `proj-${Date.now()}`;
       const projectName =
         pending.pendingPrompt
           .slice(0, 40)
@@ -60,23 +60,29 @@ export default function AuthModal({ isOpen, onClose, onSuccess, promptPreview }:
           .replace(/[^a-zA-Z0-9-]/g, '')
           .toLowerCase() || 'new-project';
 
-      addProject({
-        id: projectId,
-        name: projectName,
-        description: pending.pendingPrompt,
-        prompt: pending.pendingPrompt,
-        categories: [pending.selectedCategory],
-        createdAt: new Date().toISOString(),
-        versions: [],
-        files: [
-          {
-            id: `f-${Date.now()}-readme`,
-            path: 'README.md',
-            content: `# ${projectName}\n\nGenerating project from prompt:\n> ${pending.pendingPrompt}`,
-            language: 'markdown',
-          },
-        ],
-      });
+      let projectId: string;
+
+      try {
+        const response = await fetch(`${API_URL}/api/projects`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            name: projectName,
+            prompt: pending.pendingPrompt,
+            description: pending.pendingPrompt.slice(0, 200),
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          projectId = data.project.project_id;
+        } else {
+          projectId = `proj-${Date.now()}`;
+        }
+      } catch {
+        projectId = `proj-${Date.now()}`;
+      }
 
       sessionStorage.setItem(
         'forjenta_auto_generate',
@@ -93,7 +99,6 @@ export default function AuthModal({ isOpen, onClose, onSuccess, promptPreview }:
     }
   };
 
-  /** Google OAuth */
   const handleGoogleAuth = async () => {
     const { error } = await signInWithGoogle();
     if (error) {
@@ -101,13 +106,11 @@ export default function AuthModal({ isOpen, onClose, onSuccess, promptPreview }:
     }
   };
 
-  /** Signup Step 1: Send OTP (or skip for auto-confirm emails) */
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) return;
     setLoading(true);
 
-    // Developer emails skip OTP entirely
     if (AUTO_CONFIRM_EMAILS.has(email.toLowerCase())) {
       toast({ title: 'Developer account detected', description: 'Skipping email verification.' });
       setView('signup-password');
@@ -130,7 +133,6 @@ export default function AuthModal({ isOpen, onClose, onSuccess, promptPreview }:
     setLoading(false);
   };
 
-  /** Signup Step 2: Verify OTP */
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!otp.trim()) return;
@@ -146,7 +148,6 @@ export default function AuthModal({ isOpen, onClose, onSuccess, promptPreview }:
     setLoading(false);
   };
 
-  /** Signup Step 3: Set password */
   const handleSetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (password.length < 6) {
@@ -156,7 +157,6 @@ export default function AuthModal({ isOpen, onClose, onSuccess, promptPreview }:
     setLoading(true);
     const username = email.split('@')[0];
 
-    // Auto-confirm developer emails: signUp → confirm → signIn
     if (AUTO_CONFIRM_EMAILS.has(email.toLowerCase())) {
       const { error: signUpErr } = await supabase.auth.signUp({
         email,
@@ -201,7 +201,6 @@ export default function AuthModal({ isOpen, onClose, onSuccess, promptPreview }:
       return;
     }
 
-    // Normal OTP-verified flow
     const { data, error } = await supabase.auth.updateUser({ password, data: { username } });
     if (error) {
       toast({ title: 'Failed to set password', description: error.message, variant: 'destructive' });
@@ -218,7 +217,6 @@ export default function AuthModal({ isOpen, onClose, onSuccess, promptPreview }:
     }
   };
 
-  /** Sign in with password */
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !password.trim()) {
@@ -253,12 +251,10 @@ export default function AuthModal({ isOpen, onClose, onSuccess, promptPreview }:
         <div className="h-1 w-full gradient-primary" />
 
         <div className="p-8">
-          {/* Logo */}
           <div className="mb-6 flex justify-center">
             <img src={logoImg} alt="ForJenta" className="size-16 rounded-xl object-contain shadow-lg shadow-violet-500/20" />
           </div>
 
-          {/* ─── Main view ─── */}
           {view === 'main' && (
             <>
               <h2 className="text-center font-display text-2xl font-bold text-white">Start your free trial</h2>
@@ -300,7 +296,6 @@ export default function AuthModal({ isOpen, onClose, onSuccess, promptPreview }:
             </>
           )}
 
-          {/* ─── Signup: Enter email ─── */}
           {view === 'signup-email' && (
             <>
               <h2 className="text-center font-display text-xl font-bold text-white">Create your account</h2>
@@ -316,11 +311,10 @@ export default function AuthModal({ isOpen, onClose, onSuccess, promptPreview }:
                   {loading ? 'Sending code...' : 'Send verification code'}
                 </button>
               </form>
-              <button onClick={resetView} className="mt-4 w-full text-center text-sm text-gray-500 transition-colors hover:text-gray-300">← Back</button>
+              <button onClick={resetView} className="mt-4 w-full text-center text-sm text-gray-500 transition-colors hover:text-gray-300">&larr; Back</button>
             </>
           )}
 
-          {/* ─── Signup: Verify OTP ─── */}
           {view === 'signup-otp' && (
             <>
               <h2 className="text-center font-display text-xl font-bold text-white">Verify your email</h2>
@@ -340,7 +334,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess, promptPreview }:
                 </button>
               </form>
               <div className="mt-4 flex items-center justify-between">
-                <button onClick={() => { setView('signup-email'); setOtp(''); setCooldown(0); }} className="text-sm text-gray-500 hover:text-gray-300">← Different email</button>
+                <button onClick={() => { setView('signup-email'); setOtp(''); setCooldown(0); }} className="text-sm text-gray-500 hover:text-gray-300">&larr; Different email</button>
                 <button
                   onClick={async () => {
                     setCooldown(60);
@@ -357,7 +351,6 @@ export default function AuthModal({ isOpen, onClose, onSuccess, promptPreview }:
             </>
           )}
 
-          {/* ─── Signup: Set password ─── */}
           {view === 'signup-password' && (
             <>
               <h2 className="text-center font-display text-xl font-bold text-white">Set your password</h2>
@@ -378,7 +371,6 @@ export default function AuthModal({ isOpen, onClose, onSuccess, promptPreview }:
             </>
           )}
 
-          {/* ─── Sign in ─── */}
           {view === 'signin' && (
             <>
               <h2 className="text-center font-display text-xl font-bold text-white">Welcome back</h2>
@@ -398,7 +390,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess, promptPreview }:
                   {loading ? 'Signing in...' : 'Sign in'}
                 </button>
               </form>
-              <button onClick={resetView} className="mt-4 w-full text-center text-sm text-gray-500 transition-colors hover:text-gray-300">← Back</button>
+              <button onClick={resetView} className="mt-4 w-full text-center text-sm text-gray-500 transition-colors hover:text-gray-300">&larr; Back</button>
             </>
           )}
         </div>

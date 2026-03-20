@@ -1,0 +1,79 @@
+{
+  "summary": "E2E prompt persistence fix verified. All critical flows working: landing page prompt → auth modal → project creation → auto-generation. The fix ensures real backend projects are created via POST /api/projects after OAuth, and IDEWorkspace correctly reads forjenta_auto_generate flag to trigger sendPrompt.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_prompt_persist_e2e.py",
+    "/app/test_reports/pytest/pytest_prompt_persist.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "useOAuthCallback.ts correctly creates REAL backend projects via POST /api/projects (lines 46-55)",
+    "usePromptFlow.ts savePendingPrompt/getPendingPrompt/clearPendingPrompt work correctly with sessionStorage",
+    "IDEWorkspace.tsx auto-generate useEffect (lines 43-77) correctly reads forjenta_auto_generate flag and triggers sendPrompt",
+    "workspaceStore.ts genPhase guard (lines 262-279) prevents overwriting active generation state",
+    "AuthModal.tsx handlePostAuthHandoff (lines 51-100) creates real backend projects with proper fallback"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_prompt_persist_e2e.py (created - comprehensive E2E tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (17/17 tests passed)",
+    "frontend": "100% (all E2E prompt persistence features verified)"
+  },
+  "test_credentials": {
+    "session_token": "test-session-8ee31486befa493f",
+    "user_email": "rmcknight@virphoneusa.com",
+    "project_id": "proj_c427dc85e06a"
+  },
+  "seed_data_creation": "Used existing test project and session",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "E2E prompt persistence fix verified. Key sessionStorage keys: 'forjenta_pending_prompt_flow' (for pending prompt during auth), 'forjenta_auto_generate' (for triggering generation after project load). Frontend route is /project/:id. Generation takes 15-30s typically. All APIs work correctly.",
+  "features_verified": {
+    "landing_page": {
+      "prompt_textarea": "PASS - Shows placeholder 'Describe the app you want to build...'",
+      "press_enter_text": "PASS - Shows 'Press Enter to get started' for unauthenticated users",
+      "quick_prompts": "PASS - 5 quick prompt buttons visible",
+      "prompt_submission": "PASS - Enter key triggers auth modal for unauthenticated users"
+    },
+    "auth_modal": {
+      "your_idea_saved": "PASS - Shows 'Your idea is saved' with prompt preview",
+      "continue_with_google": "PASS - Button visible and clickable",
+      "continue_with_email": "PASS - Alternative auth option available"
+    },
+    "session_storage_flow": {
+      "savePendingPrompt": "PASS - Saves prompt with metadata to sessionStorage",
+      "getPendingPrompt": "PASS - Retrieves pending prompt (verified in console)",
+      "forjenta_auto_generate_flag": "PASS - Set correctly and consumed by IDEWorkspace"
+    },
+    "backend_apis": {
+      "/api/provider/status": "PASS - Returns available=true, no auth required",
+      "POST /api/projects (without auth)": "PASS - Returns 401 correctly",
+      "POST /api/projects (with auth)": "PASS - Creates real backend project",
+      "GET /api/projects/:id": "PASS - Returns project with files, prompts, activity",
+      "POST /api/generate": "PASS - Generates files without user auth (server-side credentials)",
+      "/api/auth/me": "PASS - Returns user info with valid session"
+    },
+    "ide_workspace": {
+      "page_loads": "PASS - IDEWorkspace renders with file explorer, editor, terminal",
+      "auto_generate_trigger": "PASS - Reads forjenta_auto_generate flag and triggers sendPrompt",
+      "flag_consumption": "PASS - Flag cleared from sessionStorage after reading",
+      "genPhase_guard": "PASS - Prevents overwriting state during active generation"
+    }
+  },
+  "p0_bug_fix_verification": {
+    "issue": "Unauthenticated user prompt lost after OAuth redirect",
+    "fix_1_useOAuthCallback": "VERIFIED - Creates REAL backend project via POST /api/projects instead of fake client-side ID",
+    "fix_2_IDEWorkspace_auto_generate": "VERIFIED - useEffect checks forjenta_auto_generate flag and triggers sendPrompt after project loads",
+    "fix_3_workspaceStore_guard": "VERIFIED - genPhase guard prevents overwriting active generation state",
+    "fix_4_AuthModal_handlePostAuthHandoff": "VERIFIED - Creates real backend projects with proper error handling"
+  }
+}

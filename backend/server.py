@@ -34,7 +34,7 @@ project_service = ProjectService(db)
 # GitHub OAuth Configuration
 GITHUB_CLIENT_ID = os.environ.get('GITHUB_CLIENT_ID', '')
 GITHUB_CLIENT_SECRET = os.environ.get('GITHUB_CLIENT_SECRET', '')
-FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://forjenta-ide.preview.emergentagent.com')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://prompt-persist-fix.preview.emergentagent.com')
 
 # Create the main app
 app = FastAPI(title="ForJenta API", version="3.0.0")

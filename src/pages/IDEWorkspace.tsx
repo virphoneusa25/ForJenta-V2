@@ -14,6 +14,7 @@ import PreviewPane from '@/components/ide/PreviewPane';
 export default function IDEWorkspace() {
   const { id } = useParams<{ id: string }>();
   const initCalledFor = useRef<string | null>(null);
+  const autoGenCheckedRef = useRef(false);
 
   const projectName = useWorkspaceStore(s => s.projectName);
   const projectLoading = useWorkspaceStore(s => s.projectLoading);
@@ -33,9 +34,47 @@ export default function IDEWorkspace() {
     if (!id) return;
     if (initCalledFor.current === id) return;
     initCalledFor.current = id;
+    autoGenCheckedRef.current = false; // Reset auto-gen check for new project
     reset();
     initProject(id);
   }, [id]);
+
+  // Auto-generate: after project finishes loading, check for pending auto-generate flag
+  useEffect(() => {
+    if (projectLoading) return;
+    if (!id) return;
+    if (autoGenCheckedRef.current) return;
+    autoGenCheckedRef.current = true;
+
+    const autoGenStr = sessionStorage.getItem('forjenta_auto_generate');
+    if (!autoGenStr) return;
+
+    try {
+      const autoGen = JSON.parse(autoGenStr);
+      if (autoGen.projectId !== id) return;
+
+      // Clear immediately to prevent re-triggers on HMR or re-renders
+      sessionStorage.removeItem('forjenta_auto_generate');
+
+      const prompt = autoGen.prompt;
+      if (!prompt) return;
+
+      console.log('[IDEWorkspace] Auto-generating from pending prompt:', prompt.substring(0, 80));
+
+      // Small delay to let the UI render first, then trigger generation
+      setTimeout(() => {
+        const { sendPrompt, genPhase } = useWorkspaceStore.getState();
+        if (genPhase !== 'idle') {
+          console.log('[IDEWorkspace] Generation already in progress, skipping auto-generate');
+          return;
+        }
+        sendPrompt(prompt);
+      }, 300);
+    } catch (e) {
+      console.error('[IDEWorkspace] Failed to parse auto-generate flag:', e);
+      sessionStorage.removeItem('forjenta_auto_generate');
+    }
+  }, [projectLoading, id]);
 
   const handleFileSelect = useCallback((path: string) => {
     selectFile(path);

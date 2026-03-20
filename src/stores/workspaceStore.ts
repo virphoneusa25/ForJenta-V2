@@ -258,6 +258,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
 
     // 3. Try loading from backend API
+    // Guard: don't overwrite state if generation is already active
+    const currentPhase = get().genPhase;
+    const genActive = currentPhase === 'preparing' || currentPhase === 'generating' || currentPhase === 'applying_files';
+
     try {
       const res = await fetch(`${API_URL}/api/projects/${id}`, { credentials: 'include' });
       if (res.ok) {
@@ -265,28 +269,38 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         const project = data.project;
         const files: ProjectFile[] = data.files || [];
         const prompts = data.prompts || [];
-        const chatMsgs: ChatMessage[] = [];
-        for (const p of prompts) {
-          chatMsgs.push({ id: nextMsgId(), role: 'user', content: p.content, timestamp: new Date(p.created_at).getTime() });
-          if (p.change_summary) chatMsgs.push({ id: nextMsgId(), role: 'assistant', content: p.change_summary, summary: p.change_summary, timestamp: new Date(p.completed_at || p.created_at).getTime(), files: [] });
+
+        // If generation is already running, only update metadata, skip file/message overwrite
+        if (genActive) {
+          set({
+            projectName: project.name || get().projectName || 'Untitled Project',
+            isAuthenticated: true, sessionStatus: 'ready',
+          });
+          get().addTerminalLine(`Project "${project.name}" loaded (generation in progress, skipping file overwrite)`, 'info');
+        } else {
+          const chatMsgs: ChatMessage[] = [];
+          for (const p of prompts) {
+            chatMsgs.push({ id: nextMsgId(), role: 'user', content: p.content, timestamp: new Date(p.created_at).getTime() });
+            if (p.change_summary) chatMsgs.push({ id: nextMsgId(), role: 'assistant', content: p.change_summary, summary: p.change_summary, timestamp: new Date(p.completed_at || p.created_at).getTime(), files: [] });
+          }
+          const eMsgs = get().messages;
+          const mMsgs = chatMsgs.length >= eMsgs.length ? chatMsgs : eMsgs;
+          const mFiles = files.length > 0 ? files : get().files;
+          const tree = buildFileTree(mFiles);
+          const firstPrompt = prompts[0]?.content || get().activeProjectPrompt || '';
+          const idx = mFiles.find(f => f.path === 'index.html') || mFiles[0];
+          const eTabs = get().openTabs;
+          set({
+            projectName: project.name || get().projectName || 'Untitled Project',
+            activeProjectPrompt: firstPrompt,
+            files: mFiles, fileTree: tree,
+            openTabs: eTabs.length > 0 ? eTabs : (idx ? [idx.path] : []),
+            activeFile: get().activeFile || idx?.path || null,
+            messages: mMsgs, previewHtml: buildPreview(mFiles),
+            isAuthenticated: true, sessionStatus: 'ready',
+          });
+          get().addTerminalLine(`Loaded project "${project.name}" with ${mFiles.length} files`, 'success');
         }
-        const eMsgs = get().messages;
-        const mMsgs = chatMsgs.length >= eMsgs.length ? chatMsgs : eMsgs;
-        const mFiles = files.length > 0 ? files : get().files;
-        const tree = buildFileTree(mFiles);
-        const firstPrompt = prompts[0]?.content || get().activeProjectPrompt || '';
-        const idx = mFiles.find(f => f.path === 'index.html') || mFiles[0];
-        const eTabs = get().openTabs;
-        set({
-          projectName: project.name || get().projectName || 'Untitled Project',
-          activeProjectPrompt: firstPrompt,
-          files: mFiles, fileTree: tree,
-          openTabs: eTabs.length > 0 ? eTabs : (idx ? [idx.path] : []),
-          activeFile: get().activeFile || idx?.path || null,
-          messages: mMsgs, previewHtml: buildPreview(mFiles),
-          isAuthenticated: true, sessionStatus: 'ready',
-        });
-        get().addTerminalLine(`Loaded project "${project.name}" with ${mFiles.length} files`, 'success');
       } else if (res.status === 401) {
         get().addTerminalLine('User session not found — provider mode active', 'info');
         set({ isAuthenticated: false, sessionStatus: 'ready' });

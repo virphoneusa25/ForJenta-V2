@@ -7,7 +7,7 @@ import requests
 import os
 import time
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://forjenta-ide.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://prompt-persist-fix.preview.emergentagent.com').rstrip('/')
 
 # Use localhost for direct backend access
 BACKEND_URL = "http://localhost:8001"

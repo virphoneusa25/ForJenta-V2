@@ -12,7 +12,7 @@ import requests
 import os
 import time
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://forjenta-ide.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://prompt-persist-fix.preview.emergentagent.com').rstrip('/')
 AUTH_TOKEN = "test-session-8ee31486befa493f"
 
 class TestStatusEndpoints:
