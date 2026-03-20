@@ -5,7 +5,7 @@ import json
 import uuid
 
 class PersistentProjectAPITester:
-    def __init__(self, base_url="https://ai-ide-preview-1.preview.emergentagent.com"):
+    def __init__(self, base_url="https://forjenta-ide.preview.emergentagent.com"):
         self.base_url = base_url
         self.token = "test_session_1773890049829"  # Using created test session
         self.user_id = "test-user-1773890049829"
