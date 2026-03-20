@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { FileCode, FileType, ChevronDown, ChevronRight, Paperclip, Send, Sparkles, Bot, Circle, CheckCircle2, Loader2 } from 'lucide-react';
+import { FileCode, Send, Bot, Loader2, RotateCcw, Star, AlertCircle } from 'lucide-react';
 import { useWorkspaceStore, type ChatMessage } from '@/stores/workspaceStore';
 
 /* ── File Change Card ─────────────────────────────────── */
@@ -14,6 +14,26 @@ function FileChangeCard({ name, action }: { name: string; action: 'created' | 'u
       <span className="ai-file-card-diff" style={{ color: isNew ? '#98c379' : '#e09932' }}>
         {isNew ? 'new' : 'modified'}
       </span>
+    </div>
+  );
+}
+
+/* ── Error Card with Retry ────────────────────────────── */
+function ErrorCard({ message }: { message: ChatMessage }) {
+  const { retryLastPrompt } = useWorkspaceStore();
+  return (
+    <div className="ai-error-card" data-testid="chat-error-message">
+      <div className="ai-error-card-header">
+        <AlertCircle size={14} className="text-[#d04747]" />
+        <span className="text-[#d04747] text-xs font-medium">Generation Failed</span>
+      </div>
+      <p className="ai-error-card-text">{message.content}</p>
+      {message.retryPrompt && (
+        <button className="ai-retry-btn" onClick={retryLastPrompt} data-testid="retry-generation-btn">
+          <RotateCcw size={12} />
+          <span>Retry</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -33,7 +53,10 @@ function MessageBubble({ message }: { message: ChatMessage }) {
     );
   }
 
-  // Assistant message
+  if (message.isError) {
+    return <ErrorCard message={message} />;
+  }
+
   return (
     <div className="ai-assistant-message" data-testid="chat-assistant-message">
       <div className="ai-narration">
@@ -65,7 +88,7 @@ function GeneratingIndicator({ progress }: { progress: string }) {
 /* ── Prompt Composer ─────────────────────────────────── */
 function PromptComposer() {
   const [input, setInput] = useState('');
-  const { sendPrompt, generating } = useWorkspaceStore();
+  const { sendPrompt, generating, selectedModel } = useWorkspaceStore();
 
   const handleSend = () => {
     if (!input.trim() || generating) return;
@@ -102,9 +125,9 @@ function PromptComposer() {
           </div>
         </div>
         <div className="ai-composer-right">
-          <div className="ai-composer-pill">
-            <Sparkles size={13} className="text-[#e09932]" />
-            <span>Inworld AI</span>
+          <div className="ai-composer-pill" data-testid="model-selector">
+            <Star size={13} className="text-[#e09932]" />
+            <span>{selectedModel.modelLabel}</span>
           </div>
           <button className="ai-composer-send" data-testid="ai-composer-send" disabled={!input.trim() || generating} onClick={handleSend}>
             <Send size={15} />
@@ -117,20 +140,22 @@ function PromptComposer() {
 
 /* ── Main AI Feed Panel ──────────────────────────────── */
 export default function AIFeedPanel() {
-  const { messages, generating, generationProgress } = useWorkspaceStore();
+  const { messages, generating, generationProgress, regenerate, activeProjectPrompt } = useWorkspaceStore();
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, generating]);
 
+  const hasMessages = messages.length > 0;
+  const lastMsgIsAssistant = hasMessages && messages[messages.length - 1].role === 'assistant' && !messages[messages.length - 1].isError;
+
   return (
     <div className="ai-feed-panel" data-testid="ai-feed-panel">
       <div className="ai-feed-scroll" ref={scrollRef}>
-        {messages.length === 0 && !generating && (
+        {!hasMessages && !generating && (
           <div className="ai-feed-empty">
             <Bot size={32} className="text-[#3a3d44] mb-2" />
             <p className="text-[#8b93a1] text-xs text-center">
@@ -145,6 +170,16 @@ export default function AIFeedPanel() {
         ))}
 
         {generating && <GeneratingIndicator progress={generationProgress} />}
+
+        {/* Regenerate button after successful generation */}
+        {lastMsgIsAssistant && !generating && (
+          <div className="ai-regen-row">
+            <button className="ai-regen-btn" onClick={regenerate} data-testid="regenerate-btn">
+              <RotateCcw size={12} />
+              <span>Regenerate</span>
+            </button>
+          </div>
+        )}
       </div>
 
       <PromptComposer />

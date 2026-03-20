@@ -852,3 +852,65 @@
   cursor: pointer;
   user-select: none;
 }
+
+
+/* ── Error Card ───────────────────────────────────────── */
+.ai-error-card {
+  margin: 6px 0;
+  padding: 10px 12px;
+  background: rgba(208, 71, 71, 0.08);
+  border: 1px solid rgba(208, 71, 71, 0.25);
+  border-radius: 6px;
+}
+.ai-error-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.ai-error-card-text {
+  font-size: 12px;
+  color: var(--ide-text-muted);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.ai-retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: #6db3f2;
+  background: rgba(109, 179, 242, 0.1);
+  border: 1px solid rgba(109, 179, 242, 0.25);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.ai-retry-btn:hover {
+  background: rgba(109, 179, 242, 0.2);
+}
+
+/* ── Regenerate Row ───────────────────────────────────── */
+.ai-regen-row {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 2px;
+}
+.ai-regen-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--ide-text-muted);
+  background: var(--ide-surface);
+  border: 1px solid var(--ide-border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.ai-regen-btn:hover {
+  background: rgba(255,255,255,0.06);
+  color: var(--ide-text);
+}

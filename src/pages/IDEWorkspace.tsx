@@ -1,5 +1,5 @@
 import { useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { GitBranch, Lock, XCircle, AlertTriangle, CheckCircle, Bell } from 'lucide-react';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
@@ -13,7 +13,6 @@ import PreviewPane from '@/components/ide/PreviewPane';
 
 export default function IDEWorkspace() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const {
     projectName,
     projectLoading,
@@ -22,7 +21,8 @@ export default function IDEWorkspace() {
     activeView,
     terminalExpanded,
     files,
-    loadProject,
+    projectId,
+    initProject,
     selectFile,
     toggleTerminal,
     setActiveView,
@@ -30,11 +30,11 @@ export default function IDEWorkspace() {
   } = useWorkspaceStore();
 
   useEffect(() => {
-    if (id) {
+    if (id && id !== projectId) {
       reset();
-      loadProject(id);
+      initProject(id);
     }
-    return () => { reset(); };
+    // No cleanup reset: we want to preserve state across re-renders
   }, [id]);
 
   const handleFileSelect = useCallback((path: string) => {
