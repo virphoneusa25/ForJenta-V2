@@ -8,60 +8,72 @@ ForJenta is a premium, persistent, project-based AI code generation IDE styled a
 ### Core Architecture
 - **Frontend**: Vite + React + TypeScript + TailwindCSS + Zustand (at `/app/src/`)
 - **Backend**: FastAPI + Python + MongoDB (at `/app/backend/`)
-- **Code Generation**: Inworld AI Router (OpenAI-compatible) at `https://api.inworld.ai/v1/chat/completions` — displayed as "Claude Opus 4.6" in UI
+- **Code Generation**: Inworld AI Router (OpenAI-compatible) at `https://api.inworld.ai/v1/chat/completions`
 - **Auth**: Emergent-managed Google OAuth + GitHub OAuth
 
-### IDE Workspace Components
-- `IDEWorkspace.tsx` - Main page shell using react-resizable-panels
-- `WorkspaceHeader.tsx` - Header with project name, App/Code tabs
-- `AIFeedPanel.tsx` - AI chat with error cards, retry/regenerate buttons, Claude Opus 4.6 selector
-- `ActivityBar.tsx` - VS Code-style icon bar
-- `ExplorerPanel.tsx` - File tree from real project files
-- `EditorCanvas.tsx` - Monaco Editor with tabs
-- `PreviewPane.tsx` - Live HTML/CSS/JS iframe preview
-- `BottomTerminalDock.tsx` - Terminal with generation stage logs
-- `ide-workspace.css` - Full dark IDE theme
+### Provider Execution Layer
+- `modelConfig.ts` — ModelConfig type with providerId, providerLabel, modelId, modelLabel, apiBaseUrl, authType, icon
+- `aiProviderRegistry.ts` — Provider registry + `/api/provider/status` health check
+- `generationOrchestrator.ts` — Full generation flow with retry logic (2 retries, 150s timeout)
+- Backend `/api/generate` — Full contract endpoint (rootPrompt, followUpPrompt, fileTree, buildHistory)
+- Backend `/api/provider/status` — Provider health check (no auth required)
+- Startup validation logs provider configuration
+
+### IDE Components
+- `IDEWorkspace.tsx` — Main page shell
+- `WorkspaceHeader.tsx` — Project name, App/Code tabs
+- `AIFeedPanel.tsx` — AI chat, error cards, retry/regenerate, model picker (Inworld — Inworld AI)
+- `ExplorerPanel.tsx` — File tree from real project files
+- `EditorCanvas.tsx` — Monaco Editor with tabs
+- `PreviewPane.tsx` — Live HTML/CSS/JS iframe preview
+- `BottomTerminalDock.tsx` — Terminal with stage-by-stage logs
+- `ActivityBar.tsx` — VS Code-style icon bar
 
 ### State Management (workspaceStore.ts)
-Central Zustand store managing:
-- Project data + files + file tree
-- Open tabs + active file + editor content
-- AI chat messages + generation state
-- Terminal output + preview HTML
-- **Provider config** (Claude Opus 4.6 default)
-- **Session persistence** via localStorage
-- **Context memory** (activeProjectPrompt, conversation history)
-- **401-resilient generation** — bypasses auth failures, continues with direct API
+- Project data, files, file tree
+- Open tabs, active file, editor content
+- AI chat messages, generation state
+- Terminal output, preview HTML
+- Provider config (Inworld default), provider availability
+- Session persistence via localStorage
+- Context memory (activeProjectPrompt, conversation history)
 
-### Key Features Implemented
+### What's Been Implemented
 - [x] Full IDE workspace matching reference screenshot
-- [x] Inworld AI integration (backend) — displayed as "Claude Opus 4.6" in UI
-- [x] **401-resilient generation flow** — prompt registration 401 is bypassed, generation proceeds
-- [x] **Session persistence via localStorage** — messages, files, tabs, model persist across refresh
-- [x] **Context memory** — original prompt saved, follow-ups reference prior files + history
-- [x] **Provider config layer** — selectedModel with providerLabel, modelId, iconType etc.
-- [x] **Error cards with retry button** — friendly messages replace raw 401 errors
-- [x] **Regenerate button** — after successful generation
-- [x] **Duplicate submission prevention** — input disabled during generation
-- [x] **Detailed terminal logging** — 5-stage progress (1/5 through 5/5)
-- [x] Monaco Editor with real file content, tab management, editing
-- [x] Live HTML/CSS/JS preview via iframe (App tab)
-- [x] File explorer with real project files
-- [x] Resizable panels with persistent layout
-
-### 3rd Party Integrations
-- **Inworld AI**: Code generation via Router API (`inworld/default-forjenta-model`)
-- **Emergent Google Auth**: Login
-- **GitHub OAuth**: Login
+- [x] **Inworld AI provider execution layer** (modelConfig, aiProviderRegistry, generationOrchestrator)
+- [x] **Backend /api/generate** with full input/output contract (no user auth required)
+- [x] **Backend /api/provider/status** endpoint for health checks
+- [x] **Startup validation** of Inworld API key and model config
+- [x] **Retry logic** (2 retries on network failures, 150s timeout)
+- [x] **Truncated JSON repair** for oversized AI responses
+- [x] **Truthful model picker** showing "Inworld — Inworld AI"
+- [x] **Structured error codes** (PROVIDER_KEY_MISSING, PROVIDER_REQUEST_FAILED, NETWORK_FETCH_FAILED, etc.)
+- [x] **No "local mode"** — generation always uses backend provider
+- [x] **Precise terminal logging** (stage-by-stage: provider validation, request, response, file ops)
+- [x] **Error cards with retry** button and structured error codes
+- [x] **Regenerate button** after successful generation
+- [x] **localStorage persistence** for messages, files, tabs, model
+- [x] **Context memory** — original prompt + files + conversation as AI context
+- [x] **Follow-up prompts** treated as refinements (continuation mode with fileTree)
+- [x] Monaco Editor, live preview, file explorer, tab management
+- [x] Resizable panels, activity bar, global status bar
 
 ### Bug Fixes Applied
-- [x] P0: 401 on prompt registration — generation now bypasses auth failures
-- [x] P0: Generator crash — fixed event handler
-- [x] P0: Dead Supabase edge function — replaced with internal API
-- [x] P0: Credit check blocking — made non-blocking
-- [x] P1: Session lost on refresh — localStorage persistence added
+- [x] P0: 401 on generation — removed auth dependency, generation uses server-side credentials
+- [x] P0: "Failed to fetch" — added retry logic, increased timeouts
+- [x] P0: Truncated AI responses — JSON repair for incomplete files
+- [x] P0: Misleading "local mode" messages — removed, replaced with truthful provider status
+- [x] P0: Generator crash, dead Supabase, credit blocking (from previous sessions)
 
-### Pending/Backlog Tasks
+### API Endpoints
+- `GET /api/provider/status` — Provider health check (no auth)
+- `POST /api/generate` — Full generation endpoint (no auth, server-side credentials)
+- `POST /api/generate-code` — Legacy generation endpoint (backward compat)
+- `GET /api/projects/:id` — Load project (auth required)
+- `POST /api/projects/:id/prompts` — Register prompt (auth, optional)
+- `POST /api/projects/:id/files` — Save files (auth, optional)
+
+### Pending Tasks
 #### P1 - Upcoming
 - Smart Auto-Repair for preview errors
 - GitHub integration (Pull from GitHub)
@@ -70,15 +82,16 @@ Central Zustand store managing:
 #### P2 - Future
 - Project templates (React, HTML, TypeScript starters)
 - Framework support (Vue, Svelte)
-- Smart Agent streaming narration
+- Streaming generation narration
 - Mobile responsive IDE layout
-- Deprecate/cleanup legacy ProjectBuilder.tsx
+- Deprecate legacy ProjectBuilder.tsx
 
 ### Test Reports
-- iteration_18.json: Full E2E test of all critical fixes — 100% pass rate (backend 23/23, frontend all verified)
-- iteration_17.json: Previous IDE functional test — 100% pass
+- iteration_19.json: Provider layer + generation E2E — 100% (backend 14/14, frontend all pass)
+- iteration_18.json: Previous 401 fix — 100%
+- iteration_17.json: Initial functional IDE — 100%
 
 ### Test Credentials
-- Google login: rmcknight@virphoneusa.com
-- Test session: test-session-8ee31486befa493f
-- Test project: proj_c427dc85e06a
+- Session: test-session-8ee31486befa493f
+- Project: proj_c427dc85e06a
+- Email: rmcknight@virphoneusa.com
