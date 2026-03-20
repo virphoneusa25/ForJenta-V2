@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { GitBranch, Lock, XCircle, AlertTriangle, CheckCircle, Bell } from 'lucide-react';
@@ -13,28 +13,28 @@ import PreviewPane from '@/components/ide/PreviewPane';
 
 export default function IDEWorkspace() {
   const { id } = useParams<{ id: string }>();
-  const {
-    projectName,
-    projectLoading,
-    fileTree,
-    activeFile,
-    activeView,
-    terminalExpanded,
-    files,
-    projectId,
-    initProject,
-    selectFile,
-    toggleTerminal,
-    setActiveView,
-    reset,
-  } = useWorkspaceStore();
+  const initCalledFor = useRef<string | null>(null);
 
+  const projectName = useWorkspaceStore(s => s.projectName);
+  const projectLoading = useWorkspaceStore(s => s.projectLoading);
+  const fileTree = useWorkspaceStore(s => s.fileTree);
+  const activeFile = useWorkspaceStore(s => s.activeFile);
+  const activeView = useWorkspaceStore(s => s.activeView);
+  const terminalExpanded = useWorkspaceStore(s => s.terminalExpanded);
+  const files = useWorkspaceStore(s => s.files);
+  const initProject = useWorkspaceStore(s => s.initProject);
+  const selectFile = useWorkspaceStore(s => s.selectFile);
+  const toggleTerminal = useWorkspaceStore(s => s.toggleTerminal);
+  const setActiveView = useWorkspaceStore(s => s.setActiveView);
+  const reset = useWorkspaceStore(s => s.reset);
+
+  // Init ONCE per project id. Ref prevents double-fire from strict mode / HMR.
   useEffect(() => {
-    if (id && id !== projectId) {
-      reset();
-      initProject(id);
-    }
-    // No cleanup reset: we want to preserve state across re-renders
+    if (!id) return;
+    if (initCalledFor.current === id) return;
+    initCalledFor.current = id;
+    reset();
+    initProject(id);
   }, [id]);
 
   const handleFileSelect = useCallback((path: string) => {
@@ -63,63 +63,36 @@ export default function IDEWorkspace() {
       />
       <div className="ide-main">
         <PanelGroup direction="horizontal" autoSaveId="ide-layout">
-          {/* Left AI Feed Panel */}
           <Panel defaultSize={30} minSize={20} maxSize={45}>
             <AIFeedPanel />
           </Panel>
           <PanelResizeHandle className="ide-resize-handle" />
-          {/* Center: Activity Bar + Explorer */}
           <Panel defaultSize={22} minSize={14} maxSize={35}>
             <div className="ide-center-col">
               <ActivityBar />
-              <ExplorerPanel
-                files={fileTree}
-                activeFile={activeFile}
-                onFileSelect={handleFileSelect}
-              />
+              <ExplorerPanel files={fileTree} activeFile={activeFile} onFileSelect={handleFileSelect} />
             </div>
           </Panel>
           <PanelResizeHandle className="ide-resize-handle" />
-          {/* Right: Editor/Preview + Terminal */}
           <Panel defaultSize={48} minSize={30}>
             <div className="ide-right-col">
               <div className="ide-editor-area">
-                {activeView === 'code' ? (
-                  <EditorCanvas activeFile={activeFile} />
-                ) : (
-                  <PreviewPane />
-                )}
+                {activeView === 'code' ? <EditorCanvas activeFile={activeFile} /> : <PreviewPane />}
               </div>
-              <BottomTerminalDock
-                expanded={terminalExpanded}
-                onToggle={toggleTerminal}
-              />
+              <BottomTerminalDock expanded={terminalExpanded} onToggle={toggleTerminal} />
             </div>
           </Panel>
         </PanelGroup>
       </div>
-      {/* Global Status Bar */}
       <div className="ide-global-status-bar">
         <div className="ide-status-left">
-          <div className="ide-status-item">
-            <GitBranch size={13} />
-            <span>master</span>
-          </div>
+          <div className="ide-status-item"><GitBranch size={13} /><span>master</span></div>
           <Lock size={12} className="text-[#8b93a1]" />
         </div>
         <div className="ide-status-center">
-          <div className="ide-status-item text-[#d04747]">
-            <XCircle size={12} />
-            <span>0</span>
-          </div>
-          <div className="ide-status-item text-[#e09932]">
-            <AlertTriangle size={12} />
-            <span>0</span>
-          </div>
-          <div className="ide-status-item text-[#98c379]">
-            <CheckCircle size={12} />
-            <span>{files.length}</span>
-          </div>
+          <div className="ide-status-item text-[#d04747]"><XCircle size={12} /><span>0</span></div>
+          <div className="ide-status-item text-[#e09932]"><AlertTriangle size={12} /><span>0</span></div>
+          <div className="ide-status-item text-[#98c379]"><CheckCircle size={12} /><span>{files.length}</span></div>
         </div>
         <div className="ide-status-right">
           <span className="ide-status-item text-[#8b93a1]">{files.length} files</span>

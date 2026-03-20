@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { FileCode, Send, Bot, Loader2, RotateCcw, Star, AlertCircle } from 'lucide-react';
 import { useWorkspaceStore, type ChatMessage } from '@/stores/workspaceStore';
-import type { ModelConfig } from '@/lib/modelConfig';
 
 /* ── File Change Card ─────────────────────────────────── */
 function FileChangeCard({ name, action }: { name: string; action: 'created' | 'updated' }) {
@@ -21,7 +20,7 @@ function FileChangeCard({ name, action }: { name: string; action: 'created' | 'u
 
 /* ── Error Card with Retry ────────────────────────────── */
 function ErrorCard({ message }: { message: ChatMessage }) {
-  const { retryLastPrompt } = useWorkspaceStore();
+  const retryLastPrompt = useWorkspaceStore(s => s.retryLastPrompt);
   const codeLabel = message.errorCode ? ` (${message.errorCode})` : '';
   return (
     <div className="ai-error-card" data-testid="chat-error-message">
@@ -54,11 +53,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       </div>
     );
   }
-
-  if (message.isError) {
-    return <ErrorCard message={message} />;
-  }
-
+  if (message.isError) return <ErrorCard message={message} />;
   return (
     <div className="ai-assistant-message" data-testid="chat-assistant-message">
       <div className="ai-narration">
@@ -66,9 +61,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       </div>
       {message.files && message.files.length > 0 && (
         <div className="ai-file-changes">
-          {message.files.map(f => (
-            <FileChangeCard key={f.path} name={f.path} action={f.action} />
-          ))}
+          {message.files.map(f => <FileChangeCard key={f.path} name={f.path} action={f.action} />)}
         </div>
       )}
     </div>
@@ -87,23 +80,28 @@ function GeneratingIndicator({ progress }: { progress: string }) {
   );
 }
 
-/* ── Prompt Composer ─────────────────────────────────── */
+/* ── Prompt Composer (double-fire protected) ──────────── */
 function PromptComposer() {
   const [input, setInput] = useState('');
-  const { sendPrompt, generating, selectedModel } = useWorkspaceStore();
+  const sendingRef = useRef(false); // local lock survives re-renders
+  const sendPrompt = useWorkspaceStore(s => s.sendPrompt);
+  const generating = useWorkspaceStore(s => s.generating);
+  const selectedModel = useWorkspaceStore(s => s.selectedModel);
 
-  const handleSend = () => {
-    if (!input.trim() || generating) return;
-    sendPrompt(input.trim());
+  const handleSend = useCallback(() => {
+    if (!input.trim() || generating || sendingRef.current) return;
+    sendingRef.current = true;
+    const text = input.trim();
     setInput('');
-  };
+    sendPrompt(text).finally(() => { sendingRef.current = false; });
+  }, [input, generating, sendPrompt]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
-  };
+  }, [handleSend]);
 
   return (
     <div className="ai-composer">
@@ -131,7 +129,12 @@ function PromptComposer() {
             <Star size={13} className="text-[#e09932]" />
             <span>{selectedModel.providerLabel} — {selectedModel.modelLabel}</span>
           </div>
-          <button className="ai-composer-send" data-testid="ai-composer-send" disabled={!input.trim() || generating} onClick={handleSend}>
+          <button
+            className="ai-composer-send"
+            data-testid="ai-composer-send"
+            disabled={!input.trim() || generating}
+            onClick={handleSend}
+          >
             <Send size={15} />
           </button>
         </div>
@@ -142,17 +145,19 @@ function PromptComposer() {
 
 /* ── Main AI Feed Panel ──────────────────────────────── */
 export default function AIFeedPanel() {
-  const { messages, generating, generationProgress, regenerate, activeProjectPrompt } = useWorkspaceStore();
+  const messages = useWorkspaceStore(s => s.messages);
+  const generating = useWorkspaceStore(s => s.generating);
+  const generationProgress = useWorkspaceStore(s => s.generationProgress);
+  const regenerate = useWorkspaceStore(s => s.regenerate);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, generating]);
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages.length, generating]);
 
   const hasMessages = messages.length > 0;
-  const lastMsgIsAssistant = hasMessages && messages[messages.length - 1].role === 'assistant' && !messages[messages.length - 1].isError;
+  const lastMsg = hasMessages ? messages[messages.length - 1] : null;
+  const showRegen = lastMsg?.role === 'assistant' && !lastMsg.isError && !generating;
 
   return (
     <div className="ai-feed-panel" data-testid="ai-feed-panel">
@@ -166,24 +171,16 @@ export default function AIFeedPanel() {
             </p>
           </div>
         )}
-
-        {messages.map(msg => (
-          <MessageBubble key={msg.id} message={msg} />
-        ))}
-
+        {messages.map(msg => <MessageBubble key={msg.id} message={msg} />)}
         {generating && <GeneratingIndicator progress={generationProgress} />}
-
-        {/* Regenerate button after successful generation */}
-        {lastMsgIsAssistant && !generating && (
+        {showRegen && (
           <div className="ai-regen-row">
             <button className="ai-regen-btn" onClick={regenerate} data-testid="regenerate-btn">
-              <RotateCcw size={12} />
-              <span>Regenerate</span>
+              <RotateCcw size={12} /><span>Regenerate</span>
             </button>
           </div>
         )}
       </div>
-
       <PromptComposer />
     </div>
   );

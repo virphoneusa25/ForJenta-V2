@@ -1,7 +1,11 @@
 /**
  * ForJenta IDE Workspace Store
  * Central state management for the entire IDE interface.
- * Generation always goes through the backend Inworld AI provider.
+ *
+ * GENERATION STATE MACHINE:
+ *   idle → preparing → generating → applying_files → completed
+ *                                                 → failed
+ * Only one run at a time. Duplicate triggers are rejected.
  */
 import { create } from 'zustand';
 import { runGeneration, type LogCallback } from '@/lib/generationOrchestrator';
@@ -41,6 +45,7 @@ export interface ChatMessage {
   isError?: boolean;
   retryPrompt?: string;
   errorCode?: string;
+  runId?: string;
 }
 
 export interface TerminalLine {
@@ -48,6 +53,19 @@ export interface TerminalLine {
   type: 'info' | 'success' | 'error' | 'command';
   timestamp: number;
 }
+
+export type GenPhase = 'idle' | 'preparing' | 'generating' | 'applying_files' | 'completed' | 'failed';
+
+// ── Module-level locks (outside React render cycle) ────────────────
+
+let _initLock = false;            // prevents concurrent initProject
+let _genLock = false;             // prevents concurrent sendPrompt
+let _currentRunId: string | null = null;
+let _providerCheckedForProject: string | null = null; // tracks which project we already checked provider for
+
+function makeRunId(): string { return `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`; }
+let _msgSeq = 0;
+function nextMsgId(): string { return `msg_${Date.now()}_${++_msgSeq}`; }
 
 // ── Store Interface ────────────────────────────────────────────────
 
@@ -67,6 +85,8 @@ interface WorkspaceState {
   messages: ChatMessage[];
   generating: boolean;
   generationProgress: string;
+  genPhase: GenPhase;
+  currentRunId: string | null;
 
   terminalLines: TerminalLine[];
   terminalExpanded: boolean;
@@ -76,6 +96,7 @@ interface WorkspaceState {
 
   selectedModel: ModelConfig;
   providerAvailable: boolean | null;
+  providerCheckedAt: number | null;
 
   sessionStatus: 'idle' | 'loading' | 'ready' | 'generating' | 'error';
   lastError: string | null;
@@ -104,283 +125,266 @@ interface WorkspaceState {
 function buildFileTree(files: ProjectFile[]): FileNode[] {
   const root: FileNode[] = [];
   const folderMap = new Map<string, FileNode>();
-  const sortedPaths = files.map(f => f.path).sort();
-
-  for (const filePath of sortedPaths) {
+  for (const filePath of files.map(f => f.path).sort()) {
     const parts = filePath.split('/');
     const file = files.find(f => f.path === filePath)!;
-
     if (parts.length === 1) {
       root.push({ path: filePath, name: parts[0], type: 'file', language: file.language });
     } else {
-      let currentPath = '';
-      let currentChildren = root;
+      let cur = '', children = root;
       for (let i = 0; i < parts.length - 1; i++) {
-        currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
-        let folder = folderMap.get(currentPath);
-        if (!folder) {
-          folder = { path: currentPath, name: parts[i], type: 'folder', children: [] };
-          folderMap.set(currentPath, folder);
-          currentChildren.push(folder);
-        }
-        currentChildren = folder.children!;
+        cur = cur ? `${cur}/${parts[i]}` : parts[i];
+        let folder = folderMap.get(cur);
+        if (!folder) { folder = { path: cur, name: parts[i], type: 'folder', children: [] }; folderMap.set(cur, folder); children.push(folder); }
+        children = folder.children!;
       }
-      currentChildren.push({ path: filePath, name: parts[parts.length - 1], type: 'file', language: file.language });
+      children.push({ path: filePath, name: parts.at(-1)!, type: 'file', language: file.language });
     }
   }
-
-  const sortNodes = (nodes: FileNode[]): FileNode[] =>
-    nodes.sort((a, b) => {
-      if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    }).map(n => { if (n.children) n.children = sortNodes(n.children); return n; });
-
-  return sortNodes(root);
+  const sort = (ns: FileNode[]): FileNode[] => ns.sort((a, b) => a.type !== b.type ? (a.type === 'folder' ? -1 : 1) : a.name.localeCompare(b.name)).map(n => { if (n.children) n.children = sort(n.children); return n; });
+  return sort(root);
 }
 
 function buildPreview(files: ProjectFile[]): string | null {
-  const htmlFile = files.find(f => f.path === 'index.html');
-  if (!htmlFile) return null;
-  let html = htmlFile.content;
-
-  for (const css of files.filter(f => f.path.endsWith('.css'))) {
-    const rx = new RegExp(`<link[^>]*href=["']${css.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*>`, 'gi');
-    if (rx.test(html)) html = html.replace(rx, `<style>${css.content}</style>`);
-    else html = html.replace('</head>', `<style>\n${css.content}</style>\n</head>`);
+  const h = files.find(f => f.path === 'index.html');
+  if (!h) return null;
+  let html = h.content;
+  for (const c of files.filter(f => f.path.endsWith('.css'))) {
+    const rx = new RegExp(`<link[^>]*href=["']${c.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*>`, 'gi');
+    html = rx.test(html) ? html.replace(rx, `<style>${c.content}</style>`) : html.replace('</head>', `<style>\n${c.content}</style>\n</head>`);
   }
-  for (const js of files.filter(f => f.path.endsWith('.js') && !f.path.includes('node_modules'))) {
-    const rx = new RegExp(`<script[^>]*src=["']${js.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*></script>`, 'gi');
-    if (rx.test(html)) html = html.replace(rx, `<script>${js.content}</script>`);
-    else html = html.replace('</body>', `<script>\n${js.content}</script>\n</body>`);
+  for (const j of files.filter(f => f.path.endsWith('.js') && !f.path.includes('node_modules'))) {
+    const rx = new RegExp(`<script[^>]*src=["']${j.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*></script>`, 'gi');
+    html = rx.test(html) ? html.replace(rx, `<script>${j.content}</script>`) : html.replace('</body>', `<script>\n${j.content}</script>\n</body>`);
   }
   return html;
 }
 
-let msgIdCounter = 0;
-function nextMsgId(): string { return `msg_${Date.now()}_${++msgIdCounter}`; }
+function storageKey(pid: string) { return `forjenta_ws_${pid}`; }
 
-function storageKey(projectId: string): string { return `forjenta_ws_${projectId}`; }
-
-function saveToStorage(state: WorkspaceState) {
-  if (!state.projectId) return;
+function saveToStorage(s: WorkspaceState) {
+  if (!s.projectId) return;
   try {
-    localStorage.setItem(storageKey(state.projectId), JSON.stringify({
-      projectId: state.projectId,
-      projectName: state.projectName,
-      activeProjectPrompt: state.activeProjectPrompt,
-      files: state.files,
-      messages: state.messages,
-      openTabs: state.openTabs,
-      activeFile: state.activeFile,
-      activeView: state.activeView,
-      selectedModel: state.selectedModel,
-      terminalLines: state.terminalLines.slice(-50),
+    localStorage.setItem(storageKey(s.projectId), JSON.stringify({
+      projectId: s.projectId, projectName: s.projectName,
+      activeProjectPrompt: s.activeProjectPrompt,
+      files: s.files, messages: s.messages,
+      openTabs: s.openTabs, activeFile: s.activeFile,
+      activeView: s.activeView, selectedModel: s.selectedModel,
+      terminalLines: s.terminalLines.slice(-50),
     }));
   } catch {}
 }
 
-function loadFromStorage(projectId: string): any | null {
-  try {
-    const raw = localStorage.getItem(storageKey(projectId));
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
+function loadFromStorage(pid: string): any | null {
+  try { const r = localStorage.getItem(storageKey(pid)); return r ? JSON.parse(r) : null; } catch { return null; }
 }
 
-function guessLanguage(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase() || '';
-  return ({ html: 'html', htm: 'html', css: 'css', js: 'javascript', ts: 'typescript', jsx: 'javascript', tsx: 'typescript', json: 'json', md: 'markdown', py: 'python', svg: 'xml' } as Record<string, string>)[ext] || 'text';
+function guessLang(p: string): string {
+  const e = p.split('.').pop()?.toLowerCase() || '';
+  return ({ html: 'html', htm: 'html', css: 'css', js: 'javascript', ts: 'typescript', jsx: 'javascript', tsx: 'typescript', json: 'json', md: 'markdown', py: 'python', svg: 'xml' } as Record<string, string>)[e] || 'text';
 }
 
 // ── Store ──────────────────────────────────────────────────────────
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
-  projectId: null,
-  projectName: '',
-  projectLoading: false,
-  activeProjectPrompt: '',
-  files: [],
-  fileTree: [],
-  openTabs: [],
-  activeFile: null,
-  dirtyFiles: new Set(),
-  messages: [],
-  generating: false,
-  generationProgress: '',
-  terminalLines: [],
-  terminalExpanded: false,
-  activeView: 'code',
-  previewHtml: null,
-  selectedModel: DEFAULT_MODEL,
-  providerAvailable: null,
-  sessionStatus: 'idle',
-  lastError: null,
-  isAuthenticated: false,
+  projectId: null, projectName: '', projectLoading: false, activeProjectPrompt: '',
+  files: [], fileTree: [], openTabs: [], activeFile: null, dirtyFiles: new Set(),
+  messages: [], generating: false, generationProgress: '', genPhase: 'idle' as GenPhase, currentRunId: null,
+  terminalLines: [], terminalExpanded: false,
+  activeView: 'code' as const, previewHtml: null,
+  selectedModel: DEFAULT_MODEL, providerAvailable: null, providerCheckedAt: null,
+  sessionStatus: 'idle' as const, lastError: null, isAuthenticated: false,
 
-  reset: () => set({
-    projectId: null, projectName: '', projectLoading: false, activeProjectPrompt: '',
-    files: [], fileTree: [], openTabs: [], activeFile: null, dirtyFiles: new Set(),
-    messages: [], generating: false, generationProgress: '',
-    terminalLines: [], terminalExpanded: false, activeView: 'code', previewHtml: null,
-    sessionStatus: 'idle', lastError: null, isAuthenticated: false, providerAvailable: null,
-  }),
+  reset: () => {
+    _initLock = false;
+    _genLock = false;
+    _currentRunId = null;
+    _providerCheckedForProject = null;
+    set({
+      projectId: null, projectName: '', projectLoading: false, activeProjectPrompt: '',
+      files: [], fileTree: [], openTabs: [], activeFile: null, dirtyFiles: new Set(),
+      messages: [], generating: false, generationProgress: '', genPhase: 'idle', currentRunId: null,
+      terminalLines: [], terminalExpanded: false, activeView: 'code', previewHtml: null,
+      sessionStatus: 'idle', lastError: null, isAuthenticated: false,
+      providerAvailable: null, providerCheckedAt: null,
+    });
+  },
 
   saveSession: () => saveToStorage(get()),
+  setSelectedModel: (m: ModelConfig) => { _providerCheckedForProject = null; set({ selectedModel: m }); saveToStorage(get()); },
 
-  setSelectedModel: (model: ModelConfig) => { set({ selectedModel: model }); saveToStorage(get()); },
-
-  // ── Init Project ─────────────────────────────────────────────────
+  // ── Init Project (guarded: runs once per id) ─────────────────────
   initProject: async (id: string) => {
+    // Module-level lock: prevent concurrent/duplicate init
+    if (_initLock) {
+      console.log('[Workspace] initProject blocked — already running');
+      return;
+    }
+    _initLock = true;
+
     set({ projectLoading: true, projectId: id, sessionStatus: 'loading' });
 
-    // 1. Restore from localStorage immediately
+    // 1. Restore from localStorage (instant, no side effects)
     const cached = loadFromStorage(id);
     if (cached && (cached.files?.length > 0 || cached.messages?.length > 0)) {
-      const cachedFiles = cached.files || [];
+      const cf = cached.files || [];
       set({
         projectName: cached.projectName || 'Untitled Project',
         activeProjectPrompt: cached.activeProjectPrompt || '',
-        files: cachedFiles,
-        fileTree: buildFileTree(cachedFiles),
-        openTabs: cached.openTabs || [],
-        activeFile: cached.activeFile || null,
-        messages: cached.messages || [],
-        activeView: cached.activeView || 'code',
+        files: cf, fileTree: buildFileTree(cf),
+        openTabs: cached.openTabs || [], activeFile: cached.activeFile || null,
+        messages: cached.messages || [], activeView: cached.activeView || 'code',
         selectedModel: cached.selectedModel || DEFAULT_MODEL,
-        previewHtml: buildPreview(cachedFiles),
-        terminalLines: cached.terminalLines || [],
+        previewHtml: buildPreview(cf),
+        // Do NOT restore terminalLines — start fresh each session to avoid repeated log confusion
       });
     }
 
-    // 2. Check provider status (never requires user auth)
-    checkProviderStatus().then(status => {
-      set({ providerAvailable: status.available });
-      if (status.available) {
-        get().addTerminalLine(`Inworld AI provider: available (model: ${status.modelId})`, 'success');
-      } else {
-        get().addTerminalLine(`Inworld AI provider: unavailable — ${status.message || status.error}`, 'error');
+    // 2. Check provider status ONCE per project (cached)
+    if (_providerCheckedForProject !== id) {
+      _providerCheckedForProject = id;
+      try {
+        const status = await checkProviderStatus();
+        set({ providerAvailable: status.available, providerCheckedAt: Date.now() });
+        if (status.available) {
+          get().addTerminalLine(`Inworld AI provider: available (model: ${status.modelId})`, 'success');
+        } else {
+          get().addTerminalLine(`Inworld AI provider: unavailable — ${status.message || status.error}`, 'error');
+        }
+      } catch {
+        get().addTerminalLine('Could not verify provider status', 'info');
       }
-    }).catch(() => {
-      get().addTerminalLine('Could not verify provider status', 'info');
-    });
+    }
 
-    // 3. Try loading project data from backend API
+    // 3. Try loading from backend API
     try {
-      const response = await fetch(`${API_URL}/api/projects/${id}`, { credentials: 'include' });
-
-      if (response.ok) {
-        const data = await response.json();
+      const res = await fetch(`${API_URL}/api/projects/${id}`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
         const project = data.project;
         const files: ProjectFile[] = data.files || [];
         const prompts = data.prompts || [];
-
-        const chatMessages: ChatMessage[] = [];
+        const chatMsgs: ChatMessage[] = [];
         for (const p of prompts) {
-          chatMessages.push({ id: nextMsgId(), role: 'user', content: p.content, timestamp: new Date(p.created_at).getTime() });
-          if (p.change_summary) {
-            chatMessages.push({ id: nextMsgId(), role: 'assistant', content: p.change_summary, summary: p.change_summary, timestamp: new Date(p.completed_at || p.created_at).getTime(), files: [] });
-          }
+          chatMsgs.push({ id: nextMsgId(), role: 'user', content: p.content, timestamp: new Date(p.created_at).getTime() });
+          if (p.change_summary) chatMsgs.push({ id: nextMsgId(), role: 'assistant', content: p.change_summary, summary: p.change_summary, timestamp: new Date(p.completed_at || p.created_at).getTime(), files: [] });
         }
-
-        const existingMessages = get().messages;
-        const mergedMessages = chatMessages.length >= existingMessages.length ? chatMessages : existingMessages;
-        const mergedFiles = files.length > 0 ? files : get().files;
-        const tree = buildFileTree(mergedFiles);
-        const preview = buildPreview(mergedFiles);
+        const eMsgs = get().messages;
+        const mMsgs = chatMsgs.length >= eMsgs.length ? chatMsgs : eMsgs;
+        const mFiles = files.length > 0 ? files : get().files;
+        const tree = buildFileTree(mFiles);
         const firstPrompt = prompts[0]?.content || get().activeProjectPrompt || '';
-        const indexFile = mergedFiles.find(f => f.path === 'index.html');
-        const firstFile = indexFile || mergedFiles[0];
-        const existingTabs = get().openTabs;
-        const openTabs = existingTabs.length > 0 ? existingTabs : (firstFile ? [firstFile.path] : []);
-        const activeFile = get().activeFile || firstFile?.path || null;
-
+        const idx = mFiles.find(f => f.path === 'index.html') || mFiles[0];
+        const eTabs = get().openTabs;
         set({
           projectName: project.name || get().projectName || 'Untitled Project',
           activeProjectPrompt: firstPrompt,
-          files: mergedFiles, fileTree: tree, openTabs, activeFile,
-          messages: mergedMessages, previewHtml: preview,
+          files: mFiles, fileTree: tree,
+          openTabs: eTabs.length > 0 ? eTabs : (idx ? [idx.path] : []),
+          activeFile: get().activeFile || idx?.path || null,
+          messages: mMsgs, previewHtml: buildPreview(mFiles),
           isAuthenticated: true, sessionStatus: 'ready',
         });
-        get().addTerminalLine(`Loaded project "${project.name}" with ${mergedFiles.length} files`, 'success');
-      } else if (response.status === 401) {
-        get().addTerminalLine('User session not found, but server-side AI provider is available. Continuing with provider mode.', 'info');
+        get().addTerminalLine(`Loaded project "${project.name}" with ${mFiles.length} files`, 'success');
+      } else if (res.status === 401) {
+        get().addTerminalLine('User session not found — provider mode active', 'info');
         set({ isAuthenticated: false, sessionStatus: 'ready' });
       } else {
-        get().addTerminalLine(`Project load returned ${response.status}`, 'error');
+        get().addTerminalLine(`Project API returned ${res.status}`, 'error');
         set({ sessionStatus: 'ready' });
       }
-    } catch (error) {
-      get().addTerminalLine('Backend unreachable for project data — using cached session', 'info');
+    } catch {
+      get().addTerminalLine('Backend unreachable — using cached session', 'info');
       set({ sessionStatus: 'ready' });
     }
 
     set({ projectLoading: false });
     saveToStorage(get());
+    _initLock = false;
   },
 
-  selectFile: (path: string) => {
+  selectFile: (p: string) => {
     const { openTabs } = get();
-    set({ activeFile: path, openTabs: openTabs.includes(path) ? openTabs : [...openTabs, path] });
+    set({ activeFile: p, openTabs: openTabs.includes(p) ? openTabs : [...openTabs, p] });
     saveToStorage(get());
   },
 
-  closeTab: (path: string) => {
+  closeTab: (p: string) => {
     const { openTabs, activeFile } = get();
-    const newTabs = openTabs.filter(t => t !== path);
-    let newActive = activeFile;
-    if (activeFile === path) {
-      const idx = openTabs.indexOf(path);
-      newActive = newTabs[Math.min(idx, newTabs.length - 1)] || null;
-    }
-    set({ openTabs: newTabs, activeFile: newActive });
+    const nt = openTabs.filter(t => t !== p);
+    let na = activeFile;
+    if (activeFile === p) { const i = openTabs.indexOf(p); na = nt[Math.min(i, nt.length - 1)] || null; }
+    set({ openTabs: nt, activeFile: na });
     saveToStorage(get());
   },
 
-  updateFileContent: (path: string, content: string) => {
+  updateFileContent: (p: string, c: string) => {
     const { files, dirtyFiles } = get();
-    const updated = files.map(f => f.path === path ? { ...f, content } : f);
-    const newDirty = new Set(dirtyFiles);
-    newDirty.add(path);
-    set({ files: updated, dirtyFiles: newDirty });
+    const nd = new Set(dirtyFiles); nd.add(p);
+    set({ files: files.map(f => f.path === p ? { ...f, content: c } : f), dirtyFiles: nd });
   },
 
-  getFileContent: (path: string) => get().files.find(f => f.path === path)?.content || '',
+  getFileContent: (p: string) => get().files.find(f => f.path === p)?.content || '',
 
-  // ── Send Prompt (uses backend provider, never "local mode") ──────
+  // ── Send Prompt (strict single-run, module-level lock) ───────────
   sendPrompt: async (text: string) => {
+    // ── Guard 1: module-level lock (survives re-renders) ───────────
+    if (_genLock) {
+      console.log('[Workspace] Duplicate generation trigger blocked');
+      return;
+    }
+
+    // ── Guard 2: store-level check ─────────────────────────────────
     const state = get();
-    if (!state.projectId || !text.trim() || state.generating) return;
+    if (!state.projectId || !text.trim()) return;
+    if (state.generating || state.genPhase === 'preparing' || state.genPhase === 'generating' || state.genPhase === 'applying_files') {
+      console.log('[Workspace] Duplicate generation trigger blocked (state machine)');
+      return;
+    }
+
+    // ── Acquire lock ───────────────────────────────────────────────
+    _genLock = true;
+    const runId = makeRunId();
+    _currentRunId = runId;
 
     const isFirstPrompt = state.messages.filter(m => m.role === 'user').length === 0;
     const activeProjectPrompt = isFirstPrompt ? text : state.activeProjectPrompt || text;
 
-    const userMsg: ChatMessage = { id: nextMsgId(), role: 'user', content: text, timestamp: Date.now() };
+    const userMsg: ChatMessage = { id: nextMsgId(), role: 'user', content: text, timestamp: Date.now(), runId };
+
+    // ── Phase: preparing ───────────────────────────────────────────
     set({
       messages: [...state.messages, userMsg],
       generating: true,
       generationProgress: 'Preparing...',
+      genPhase: 'preparing',
+      currentRunId: runId,
       sessionStatus: 'generating',
       lastError: null,
       activeProjectPrompt,
     });
 
-    get().addTerminalLine(`> Prompt: "${text.substring(0, 80)}..."`, 'command');
+    get().addTerminalLine(`Run created: ${runId}`, 'info');
+    get().addTerminalLine(`$> Prompt: "${text.substring(0, 80)}"`, 'command');
     saveToStorage(get());
 
-    // Optional: register prompt to project (informational only, never blocks generation)
+    // Prompt registration (best-effort, does not block)
     if (state.isAuthenticated) {
       try {
         await fetch(`${API_URL}/api/projects/${state.projectId}/prompts`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ prompt: text, force_rebuild: false }),
         });
-      } catch {
-        // Prompt registration is optional — does not affect generation
-      }
+      } catch {}
     }
 
-    // Build generation input from current workspace state
+    // ── Phase: generating ──────────────────────────────────────────
+    // Bail if a different run took over (shouldn't happen, but safety)
+    if (_currentRunId !== runId) { _genLock = false; return; }
+
+    set({ genPhase: 'generating' });
+
     const input = {
       projectId: state.projectId,
       rootPrompt: activeProjectPrompt,
@@ -390,134 +394,108 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       buildHistory: state.messages.filter(m => m.role === 'user').map(m => m.content),
     };
 
-    // Log callback wires orchestrator logs → terminal + progress bar
-    const onLog: LogCallback = (logText, type) => {
-      get().addTerminalLine(logText, type);
-      if (type !== 'error') {
-        set({ generationProgress: logText });
-      }
+    const onLog: LogCallback = (t, ty) => {
+      // Only log if this run is still current
+      if (_currentRunId !== runId) return;
+      get().addTerminalLine(t, ty);
+      if (ty !== 'error') set({ generationProgress: t });
     };
 
-    // ── Execute generation through orchestrator ────────────────────
     const result = await runGeneration(input, onLog);
 
-    if (!result.success) {
-      // Structured error handling
-      const errMsg: ChatMessage = {
-        id: nextMsgId(),
-        role: 'assistant',
-        content: result.error || 'Generation failed.',
-        timestamp: Date.now(),
-        isError: true,
-        retryPrompt: text,
-        errorCode: result.errorCode,
-      };
+    // Bail if a different run took over
+    if (_currentRunId !== runId) { _genLock = false; return; }
 
+    if (!result.success) {
       set({
-        messages: [...get().messages, errMsg],
-        generating: false,
-        generationProgress: '',
-        sessionStatus: 'error',
-        lastError: result.error || null,
+        messages: [...get().messages, {
+          id: nextMsgId(), role: 'assistant', content: result.error || 'Generation failed.',
+          timestamp: Date.now(), isError: true, retryPrompt: text, errorCode: result.errorCode, runId,
+        }],
+        generating: false, generationProgress: '', genPhase: 'failed', sessionStatus: 'error', lastError: result.error || null,
       });
+      get().addTerminalLine(`Run ${runId}: FAILED — ${result.error}`, 'error');
       saveToStorage(get());
+      _genLock = false;
       return;
     }
 
-    // ── Merge generated files into workspace ───────────────────────
-    const existingFiles = get().files;
-    const mergedFiles: ProjectFile[] = [...existingFiles];
+    // ── Phase: applying_files ──────────────────────────────────────
+    set({ genPhase: 'applying_files', generationProgress: 'Updating workspace...' });
+    get().addTerminalLine(`Run ${runId}: applying ${result.files.length} files`, 'info');
 
+    const existing = get().files;
+    const merged: ProjectFile[] = [...existing];
     for (const nf of result.files) {
-      const idx = mergedFiles.findIndex(f => f.path === nf.path);
+      const i = merged.findIndex(f => f.path === nf.path);
       const pf: ProjectFile = {
-        file_id: `gen_${Date.now()}_${nf.path}`,
-        path: nf.path,
-        content: nf.content,
-        language: nf.language || guessLanguage(nf.path),
-        size_bytes: new Blob([nf.content]).size,
-        line_count: nf.content.split('\n').length,
-        version_number: idx >= 0 ? (mergedFiles[idx].version_number + 1) : 1,
-        updated_at: new Date().toISOString(),
+        file_id: `gen_${Date.now()}_${nf.path}`, path: nf.path, content: nf.content,
+        language: nf.language || guessLang(nf.path),
+        size_bytes: new Blob([nf.content]).size, line_count: nf.content.split('\n').length,
+        version_number: i >= 0 ? (merged[i].version_number + 1) : 1, updated_at: new Date().toISOString(),
       };
-      if (idx >= 0) mergedFiles[idx] = pf; else mergedFiles.push(pf);
+      if (i >= 0) merged[i] = pf; else merged.push(pf);
     }
 
-    // Try saving to backend (optional, doesn't block)
+    // Backend file save (best-effort)
     if (state.isAuthenticated && result.files.length > 0) {
       try {
         await fetch(`${API_URL}/api/projects/${state.projectId}/files`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ files: result.files, run_id: null, prompt_id: null, change_reason: text.substring(0, 100) }),
         });
-        get().addTerminalLine('Files saved to backend', 'success');
-      } catch {
-        get().addTerminalLine('Backend save skipped — files stored in workspace', 'info');
-      }
+      } catch {}
     }
 
-    // Build file change list
-    const fileChanges = result.files.map(f => ({
+    const changes = result.files.map(f => ({
       path: f.path,
-      action: (existingFiles.find(ef => ef.path === f.path) ? 'updated' : 'created') as 'created' | 'updated',
+      action: (existing.find(ef => ef.path === f.path) ? 'updated' : 'created') as 'created' | 'updated',
     }));
 
     const aiMsg: ChatMessage = {
-      id: nextMsgId(),
-      role: 'assistant',
+      id: nextMsgId(), role: 'assistant',
       content: result.summary || `Generated ${result.files.length} files`,
-      summary: result.summary,
-      timestamp: Date.now(),
-      files: fileChanges,
+      summary: result.summary, timestamp: Date.now(), files: changes, runId,
     };
 
-    const tree = buildFileTree(mergedFiles);
-    const preview = buildPreview(mergedFiles);
+    const tree = buildFileTree(merged);
+    const firstNew = result.files[0]?.path;
     const { openTabs } = get();
-    const firstNewFile = result.files[0]?.path;
-    const newOpenTabs = firstNewFile && !openTabs.includes(firstNewFile) ? [...openTabs, firstNewFile] : openTabs;
+    const newTabs = firstNew && !openTabs.includes(firstNew) ? [...openTabs, firstNew] : openTabs;
 
+    // ── Phase: completed ───────────────────────────────────────────
     set({
-      files: mergedFiles,
-      fileTree: tree,
-      previewHtml: preview,
+      files: merged, fileTree: tree, previewHtml: buildPreview(merged),
       messages: [...get().messages, aiMsg],
-      generating: false,
-      generationProgress: '',
-      openTabs: newOpenTabs,
-      activeFile: firstNewFile || get().activeFile,
-      dirtyFiles: new Set(),
-      sessionStatus: 'ready',
-      lastError: null,
+      generating: false, generationProgress: '', genPhase: 'completed',
+      openTabs: newTabs, activeFile: firstNew || get().activeFile,
+      dirtyFiles: new Set(), sessionStatus: 'ready', lastError: null,
     });
 
+    get().addTerminalLine(`Run ${runId}: completed`, 'success');
     saveToStorage(get());
+    _genLock = false;
   },
 
   retryLastPrompt: async () => {
+    if (_genLock) return;
     const { messages } = get();
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].isError && messages[i].retryPrompt) {
         const prompt = messages[i].retryPrompt!;
-        set({ messages: messages.filter((_, idx) => idx !== i) });
+        set({ messages: messages.filter((_, idx) => idx !== i), genPhase: 'idle' });
         await get().sendPrompt(prompt);
-        return;
-      }
-    }
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === 'user') {
-        await get().sendPrompt(messages[i].content);
         return;
       }
     }
   },
 
   regenerate: async () => {
+    if (_genLock) return;
     const { messages } = get();
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'user') {
+        set({ genPhase: 'idle' });
         await get().sendPrompt(messages[i].content);
         return;
       }
@@ -526,9 +504,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   toggleTerminal: () => set(s => ({ terminalExpanded: !s.terminalExpanded })),
 
-  setActiveView: (view: 'code' | 'app') => {
-    set({ activeView: view });
-    if (view === 'app') set({ previewHtml: buildPreview(get().files) });
+  setActiveView: (v: 'code' | 'app') => {
+    set({ activeView: v });
+    if (v === 'app') set({ previewHtml: buildPreview(get().files) });
     saveToStorage(get());
   },
 
