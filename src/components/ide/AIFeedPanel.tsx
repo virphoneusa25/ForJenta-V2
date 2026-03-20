@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { FileCode, Send, Bot, Loader2, RotateCcw, Star, AlertCircle } from 'lucide-react';
 import { useWorkspaceStore, type ChatMessage } from '@/stores/workspaceStore';
+import type { ModelConfig } from '@/lib/modelConfig';
 
 /* ── File Change Card ─────────────────────────────────── */
 function FileChangeCard({ name, action }: { name: string; action: 'created' | 'updated' }) {
@@ -21,17 +22,18 @@ function FileChangeCard({ name, action }: { name: string; action: 'created' | 'u
 /* ── Error Card with Retry ────────────────────────────── */
 function ErrorCard({ message }: { message: ChatMessage }) {
   const { retryLastPrompt } = useWorkspaceStore();
+  const codeLabel = message.errorCode ? ` (${message.errorCode})` : '';
   return (
     <div className="ai-error-card" data-testid="chat-error-message">
       <div className="ai-error-card-header">
         <AlertCircle size={14} className="text-[#d04747]" />
-        <span className="text-[#d04747] text-xs font-medium">Generation Failed</span>
+        <span className="text-[#d04747] text-xs font-medium">Generation Failed{codeLabel}</span>
       </div>
       <p className="ai-error-card-text">{message.content}</p>
       {message.retryPrompt && (
         <button className="ai-retry-btn" onClick={retryLastPrompt} data-testid="retry-generation-btn">
           <RotateCcw size={12} />
-          <span>Retry</span>
+          <span>Retry with provider</span>
         </button>
       )}
     </div>
@@ -127,7 +129,7 @@ function PromptComposer() {
         <div className="ai-composer-right">
           <div className="ai-composer-pill" data-testid="model-selector">
             <Star size={13} className="text-[#e09932]" />
-            <span>{selectedModel.modelLabel}</span>
+            <span>{selectedModel.providerLabel} — {selectedModel.modelLabel}</span>
           </div>
           <button className="ai-composer-send" data-testid="ai-composer-send" disabled={!input.trim() || generating} onClick={handleSend}>
             <Send size={15} />

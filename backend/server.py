@@ -1104,7 +1104,54 @@ async def delete_project(project_id: str, user: User = Depends(get_current_user)
     return {"success": True}
 
 
-# ─── Code Generation Endpoint ─────────────────────────────────────
+# ─── Provider Status Endpoint ─────────────────────────────────────
+
+@api_router.get("/provider/status")
+async def provider_status():
+    """Check if the AI provider is configured and reachable. No auth required."""
+    api_key = os.environ.get("INWORLD_API_KEY")
+    router_name = os.environ.get("INWORLD_ROUTER", "default-forjenta-model")
+    backup_router = os.environ.get("INWORLD_BACKUP_ROUTER", "backup-router")
+    api_base_url = "https://api.inworld.ai/v1/chat/completions"
+
+    checks = {
+        "api_key_present": bool(api_key),
+        "primary_model": f"inworld/{router_name}" if router_name else None,
+        "backup_model": f"inworld/{backup_router}" if backup_router else None,
+        "api_base_url": api_base_url,
+    }
+
+    if not api_key:
+        return {
+            "available": False,
+            "error": "PROVIDER_KEY_MISSING",
+            "message": "Inworld API key is not configured on the server.",
+            "provider": "inworld",
+            "checks": checks,
+        }
+
+    if not router_name:
+        return {
+            "available": False,
+            "error": "INVALID_MODEL_CONFIG",
+            "message": "No model/router configured for Inworld provider.",
+            "provider": "inworld",
+            "checks": checks,
+        }
+
+    return {
+        "available": True,
+        "provider": "inworld",
+        "providerLabel": "Inworld",
+        "modelId": f"inworld/{router_name}",
+        "modelLabel": router_name,
+        "apiBaseUrl": api_base_url,
+        "authType": "basic",
+        "checks": checks,
+    }
+
+
+# ─── Code Generation Endpoint (legacy compat) ────────────────────
 
 class GenerateCodeRequest(BaseModel):
     prompt: str
@@ -1114,7 +1161,7 @@ class GenerateCodeRequest(BaseModel):
 
 @api_router.post("/generate-code")
 async def generate_code_endpoint(req: GenerateCodeRequest):
-    """Generate code using LLM. Does not require auth for now."""
+    """Generate code using Inworld AI provider. No user auth required."""
     result = await llm_generate_code(
         prompt=req.prompt,
         categories=req.categories,
@@ -1122,6 +1169,162 @@ async def generate_code_endpoint(req: GenerateCodeRequest):
         mode=req.mode,
     )
     return result
+
+
+# ─── Full Generation Endpoint (new contract) ─────────────────────
+
+class GenerateRequest(BaseModel):
+    projectId: Optional[str] = None
+    rootPrompt: str
+    followUpPrompt: Optional[str] = None
+    fileTree: Optional[List[Dict[str, Any]]] = None
+    openFiles: Optional[List[str]] = None
+    buildHistory: Optional[List[str]] = None
+    selectedProvider: str = "inworld"
+    selectedModel: str = "inworld/default-forjenta-model"
+
+@api_router.post("/generate")
+async def generate_endpoint(req: GenerateRequest):
+    """Full generation endpoint with structured contract. No user auth required.
+    Server-side provider credentials are used for AI calls."""
+
+    # 1. Validate provider
+    api_key = os.environ.get("INWORLD_API_KEY")
+    if not api_key:
+        return {
+            "success": False,
+            "error": "PROVIDER_KEY_MISSING",
+            "message": "Inworld API key is not configured on server. Generation cannot proceed.",
+            "logs": ["Provider validation: FAILED — INWORLD_API_KEY missing"],
+            "files": [],
+            "actions": [],
+            "todos": [],
+        }
+
+    router_name = os.environ.get("INWORLD_ROUTER", "default-forjenta-model")
+    if not router_name:
+        return {
+            "success": False,
+            "error": "INVALID_MODEL_CONFIG",
+            "message": "No model configured for Inworld provider.",
+            "logs": ["Provider validation: FAILED — INWORLD_ROUTER missing"],
+            "files": [],
+            "actions": [],
+            "todos": [],
+        }
+
+    logger.info(f"[Generate] Provider: inworld, Model: inworld/{router_name}")
+    logs = [
+        f"Provider mode selected: Inworld",
+        f"Validating server-side provider credentials...",
+        f"Inworld credentials found",
+        f"Sending generation request to Inworld model: inworld/{router_name}",
+    ]
+
+    # 2. Build context from file tree
+    context_parts = []
+    if req.fileTree:
+        for f in req.fileTree:
+            path = f.get("path", "")
+            content = f.get("content", "")
+            if path and content:
+                context_parts.append(f"--- {path} ---\n{content}")
+
+    if req.buildHistory:
+        context_parts.append("Build history:\n" + "\n".join(req.buildHistory[-5:]))
+
+    context_str = "\n\n".join(context_parts)
+
+    # 3. Determine prompt and mode
+    prompt = req.followUpPrompt or req.rootPrompt
+    mode = "continuation" if context_str.strip() else "full"
+
+    # Prepend root prompt context for follow-ups
+    if req.followUpPrompt and req.rootPrompt:
+        context_str = f"Original project goal:\n{req.rootPrompt}\n\n{context_str}"
+
+    # 4. Call provider
+    logs.append("Calling Inworld AI...")
+    try:
+        result = await llm_generate_code(
+            prompt=prompt,
+            categories=["Web"],
+            context=context_str,
+            mode=mode,
+        )
+    except Exception as e:
+        logger.error(f"[Generate] Provider call failed: {e}")
+        return {
+            "success": False,
+            "error": "PROVIDER_REQUEST_FAILED",
+            "message": f"Inworld provider request failed: {str(e)}",
+            "logs": logs + [f"Provider request: FAILED — {str(e)}"],
+            "files": [],
+            "actions": [],
+            "todos": [],
+        }
+
+    if not result.get("success"):
+        error_msg = result.get("error", "Unknown provider error")
+        logs.append(f"Provider response: FAILED — {error_msg}")
+        return {
+            "success": False,
+            "error": "PROVIDER_REQUEST_FAILED",
+            "message": error_msg,
+            "logs": logs,
+            "files": [],
+            "actions": [],
+            "todos": [],
+        }
+
+    # 5. Build structured response
+    files = result.get("files", [])
+    summary = result.get("summary", f"Generated {len(files)} files")
+    logs.append(f"Provider response received")
+    logs.append(f"Parsed {len(files)} file operations")
+
+    actions = []
+    for f in files:
+        actions.append({"type": "write_file", "path": f["path"], "language": f.get("language", "text")})
+
+    logs.append("Generation complete")
+
+    return {
+        "success": True,
+        "summary": summary,
+        "files": files,
+        "actions": actions,
+        "todos": [],
+        "logs": logs,
+        "provider": "inworld",
+        "model": f"inworld/{router_name}",
+    }
+
+
+# ─── Startup Validation ──────────────────────────────────────────
+
+@app.on_event("startup")
+async def validate_provider_config():
+    """Validate AI provider configuration on startup."""
+    api_key = os.environ.get("INWORLD_API_KEY")
+    router_name = os.environ.get("INWORLD_ROUTER")
+    backup = os.environ.get("INWORLD_BACKUP_ROUTER")
+
+    if api_key:
+        logger.info(f"[Startup] Inworld API key: configured ({len(api_key)} chars)")
+    else:
+        logger.warning("[Startup] Inworld API key: MISSING — generation will fail")
+
+    if router_name:
+        logger.info(f"[Startup] Inworld primary model: inworld/{router_name}")
+    else:
+        logger.warning("[Startup] Inworld primary model: NOT SET")
+
+    if backup:
+        logger.info(f"[Startup] Inworld backup model: inworld/{backup}")
+
+    logger.info("[Startup] Generation endpoint: /api/generate (no user auth required)")
+    logger.info("[Startup] Provider status endpoint: /api/provider/status")
 
 
 # Include the router in the main app

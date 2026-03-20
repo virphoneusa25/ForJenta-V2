@@ -116,7 +116,7 @@ Generate all necessary files as a complete working application. Respond with JSO
     # Try primary router, then backup
     for model_name in [f"inworld/{router_name}", f"inworld/{backup_router}"]:
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=180.0) as client:
                 response = await client.post(
                     INWORLD_API_URL,
                     headers={
@@ -127,7 +127,7 @@ Generate all necessary files as a complete working application. Respond with JSO
                         "model": model_name,
                         "messages": messages,
                         "temperature": 0.7,
-                        "max_tokens": 16000,
+                        "max_tokens": 32000,
                     },
                 )
 
@@ -149,7 +149,7 @@ Generate all necessary files as a complete working application. Respond with JSO
 
 
 def _parse_generation_response(response_text: str) -> dict:
-    """Parse the JSON response from the LLM."""
+    """Parse the JSON response from the LLM. Handles truncated responses."""
     text = response_text.strip()
 
     # Handle markdown code fences if LLM wraps response
@@ -161,10 +161,14 @@ def _parse_generation_response(response_text: str) -> dict:
             lines = lines[:-1]
         text = "\n".join(lines)
 
+    # Try direct parse first
     try:
         result = json.loads(text)
-    except json.JSONDecodeError as e:
-        return {"success": False, "error": f"Failed to parse AI response: {str(e)}", "files": []}
+    except json.JSONDecodeError:
+        # Attempt to repair truncated JSON
+        result = _repair_truncated_json(text)
+        if result is None:
+            return {"success": False, "error": "AI response was truncated. Try a simpler or more specific prompt.", "files": []}
 
     if not isinstance(result.get("files"), list):
         return {"success": False, "error": "Invalid response format from AI", "files": []}
@@ -178,11 +182,37 @@ def _parse_generation_response(response_text: str) -> dict:
                 "language": f.get("language", guess_language(f["path"])),
             })
 
+    if not clean_files:
+        return {"success": False, "error": "AI generated no valid files. Try rephrasing your prompt.", "files": []}
+
     return {
         "success": True,
         "files": clean_files,
         "summary": result.get("summary", f"Generated {len(clean_files)} files"),
     }
+
+
+def _repair_truncated_json(text: str) -> dict | None:
+    """Attempt to repair truncated JSON by closing open structures."""
+    # Find the files array in the text
+    if '"files"' not in text:
+        return None
+
+    # Strategy: find complete file objects before the truncation
+    import re
+    file_objects = []
+    pattern = r'\{\s*"path"\s*:\s*"([^"]+)"\s*,\s*"content"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"language"\s*:\s*"([^"]+)"\s*\}'
+    for match in re.finditer(pattern, text, re.DOTALL):
+        file_objects.append({
+            "path": match.group(1),
+            "content": match.group(2).replace('\\"', '"').replace('\\n', '\n').replace('\\t', '\t'),
+            "language": match.group(3),
+        })
+
+    if file_objects:
+        return {"success": True, "files": file_objects, "summary": f"Generated {len(file_objects)} files (response was truncated, recovered {len(file_objects)} complete files)"}
+
+    return None
 
 
 def guess_language(path: str) -> str:
